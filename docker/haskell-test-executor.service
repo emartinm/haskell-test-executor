@@ -26,6 +26,7 @@ ExecStart=/usr/bin/docker run --rm --name haskell-test-executor \
     --memory 6g --pids-limit 2048 \
     -e HASKELL_EXECUTOR_WORKERS=3 \
     -v /run/haskell-test-executor:/run/haskell-test-executor \
+    -v /etc/localtime:/etc/localtime:ro \
     haskell-test-executor:latest
 ExecStop=/usr/bin/docker stop haskell-test-executor
 Restart=always
