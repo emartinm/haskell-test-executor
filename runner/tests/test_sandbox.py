@@ -48,12 +48,19 @@ class VerdictTest(unittest.TestCase):
 
     def test_rejected_pragma(self):
         r = run("{-# LANGUAGE TemplateHaskell #-}\n" + TOTAL_OK)
-        self.assertEqual((r["status"], r["source"]), ("COMPILATION_ERROR", "student"))
+        self.assertEqual((r["status"], r["source"], r["code"], r["line"]),
+                         ("COMPILATION_ERROR", "student", "pragma_not_allowed", 1))
+
+    def test_hidden_test_type_mismatch(self):
+        tests = [TestCase("total []", "0"), TestCase("total [1,2,3]", "6", hidden=True)]
+        r = run("total :: String -> Int\ntotal = length\n", tests)
+        self.assertEqual((r["status"], r["source"], r["code"], r["test"]),
+                         ("COMPILATION_ERROR", "tests", "hidden_test_type_mismatch", {"index": 2, "hidden": True}))
 
     def test_student_compile_error(self):
         r = run("total :: [Int] -> Int\ntotal = sum\nf = total True\n")
         self.assertEqual((r["status"], r["source"]), ("COMPILATION_ERROR", "student"))
-        self.assertTrue(r["message"].startswith("solucion.hs:3:"), r["message"])
+        self.assertTrue(r["message"].startswith("solution.hs:3:"), r["message"])
         self.assertIn("‘Bool’", r["message"])  # correct UTF-8 inside the box
 
     def test_tests_compile_error(self):
@@ -64,7 +71,7 @@ class VerdictTest(unittest.TestCase):
     def test_runtime_error(self):
         r = run("total :: [Int] -> Int\ntotal (x:xs) = x + total xs\n")
         self.assertEqual((r["status"], r["test"]["index"]), ("RUNTIME_ERROR", 1))
-        self.assertIn("solucion.hs:2:1", r["test"]["exception"])
+        self.assertIn("solution.hs:2:1", r["test"]["exception"])
 
     def test_time_limit_per_test(self):
         r = run("total :: [Int] -> Int\ntotal xs = total xs\n", limits=Limits(time_per_test_ms=300))
@@ -108,13 +115,14 @@ class VerdictTest(unittest.TestCase):
         self.assertEqual((cache.misses, cache.hits, len(cache)), (2, 2, 2))
         # Definitions that do not compile are not cached and give an internal error.
         sub = Submission(student_code="x = 1\n", tests=[TestCase("x", "1")], definitions="data = 1\n")
-        self.assertEqual(judge(sub, Limits(), BOX_ID, cache=cache)["status"], "INTERNAL_ERROR")
+        r = judge(sub, Limits(), BOX_ID, cache=cache)
+        self.assertEqual((r["status"], r["code"]), ("INTERNAL_ERROR", "internal_error"))
         self.assertEqual(len(cache), 2)
 
     def test_compile_limits(self):
         r = run(limits=Limits(compile_time_s=0.05))
         self.assertEqual(r, {"status": "COMPILATION_ERROR", "source": "student",
-                             "message": COMPILE_LIMITS_MESSAGE})
+                             "code": "compile_limits_exceeded", "message": COMPILE_LIMITS_MESSAGE})
 
 
 # "Teacher" code (not in Safe mode) that tries to escape the sandbox.

@@ -45,9 +45,12 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(r.json()["test"], {"index": 2, "expr": "total [1,2,3]", "expected": "6", "obtained": "3"})
 
     def test_compilation_error_is_a_verdict(self):
-        r = self.post(student_code="{-# LANGUAGE CPP #-}\n" + TOTAL)
+        r = self.post(student_code="\n{-# LANGUAGE CPP #-}\n" + TOTAL)
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json()["status"], "COMPILATION_ERROR")
+        self.assertEqual(r.json(), {
+            "status": "COMPILATION_ERROR", "source": "student", "code": "pragma_not_allowed", "line": 2,
+            "message": "solution.hs:2: pragmas ({-# ... #-}) are not allowed in the solution",
+        })
 
     def test_limits_and_definitions(self):
         r = self.post(

@@ -64,13 +64,13 @@ class IntegrationTest(unittest.TestCase):
     def test_student_type_error_reports_original_line(self):
         code = "total :: [Int] -> Int\ntotal [] = 0\ntotal (x:xs) = x + total xs + True\n"
         res = self.assertCompile(run(code, [TestCase("total []", "0")]), "student")
-        self.assertTrue(res.message.startswith("solucion.hs:3:"), res.message)
+        self.assertTrue(res.message.startswith("solution.hs:3:"), res.message)
         self.assertIn("3 | total (x:xs) = x + total xs + True", res.message)
 
     def test_unsafe_import_is_student_error(self):
         code = "import System.IO.Unsafe (unsafePerformIO)\ntotal :: [Int] -> Int\ntotal = sum\n"
         res = self.assertCompile(run(code, [TestCase("total []", "0")]), "student")
-        self.assertIn("solucion.hs:1:", res.message)
+        self.assertIn("solution.hs:1:", res.message)
         self.assertIn("Can't be safely imported", res.message)
 
     def test_wrong_type_is_reported_on_first_failing_test(self):
@@ -90,7 +90,7 @@ class IntegrationTest(unittest.TestCase):
     def test_runtime_error_reports_original_line(self):
         code = "total :: [Int] -> Int\ntotal (x:xs) = x + total xs\n"
         res = self.assertRun(run(code, [TestCase("total []", "0")]), "RUNTIME_ERROR", 1)
-        self.assertIn("solucion.hs:2:1", res["exception"])
+        self.assertIn("solution.hs:2:1", res["exception"])
 
     def test_definitions_and_wrong_answer(self):
         code = "inOrder :: Tree a -> [a]\ninOrder Leaf = []\ninOrder (Node l x r) = x : inOrder l ++ inOrder r\n"

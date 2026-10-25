@@ -47,11 +47,13 @@ class StudentCodeTest(unittest.TestCase):
         ]:
             with self.assertRaises(Rejected) as cm:
                 gen(code)
+            self.assertEqual((cm.exception.code, cm.exception.line), ("pragma_not_allowed", line))
             self.assertIn(f"{STUDENT_FILE}:{line}:", str(cm.exception))
 
     def test_rejects_module_declaration(self):
         with self.assertRaises(Rejected) as cm:
             gen("-- my solution\nmodule Main where\nf = 1\n")
+        self.assertEqual((cm.exception.code, cm.exception.line), ("module_declaration_not_allowed", 2))
         self.assertIn(f"{STUDENT_FILE}:2:", str(cm.exception))
 
     def test_module_as_part_of_identifier_is_fine(self):

@@ -6,12 +6,12 @@ modules that are compiled together with the harness (harness/Judge.hs):
   Defs.hs      teacher definitions, marked Trustworthy
   Student.hs   student code, in Safe mode and preceded by a header
   Tests.hs     Main module that passes the tests to Judge.runTests
-  solucion.hs  verbatim copy of the student code
+  solution.hs  verbatim copy of the student code
   tests        one test per line (jt__i = Judge.Test ...), as in Tests.hs
 
 The {-# LINE #-} pragmas make GHC report errors with the original line numbers
-of the student code (file "solucion.hs") and, in the tests, with the test index
-as the line number (file "tests"). The copies "solucion.hs" and "tests" exist
+of the student code (file "solution.hs") and, in the tests, with the test index
+as the line number (file "tests"). The copies "solution.hs" and "tests" exist
 only so that GHC shows the right code snippet below each error.
 
 In test expressions, if a student name clashes with one from the Prelude (e.g.
@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Sequence
 
 # File name shown to students in error messages.
-STUDENT_FILE = "solucion.hs"
+STUDENT_FILE = "solution.hs"
 TESTS_FILE = "tests"
 
 # Extensions a problem may enable for the student code. The GHC2021 ones are
@@ -57,7 +57,17 @@ class InvalidRequest(ValueError):
 
 
 class Rejected(Exception):
-    """The student code is rejected before compiling it (message for the student)."""
+    """The student code is rejected before compiling it.
+
+    `code` is a stable identifier ("pragma_not_allowed" or
+    "module_declaration_not_allowed") so that the client can show its own
+    localized text; str(self) is a default message in English.
+    """
+
+    def __init__(self, code: str, line: int, message: str):
+        super().__init__(message)
+        self.code = code
+        self.line = line
 
 
 @dataclass(frozen=True)
@@ -113,14 +123,20 @@ def _line_of(text: str, pos: int) -> int:
 def _check_student_code(code: str) -> None:
     m = _PRAGMA.search(code)
     if m:
+        line = _line_of(code, m.start())
         raise Rejected(
-            f"{STUDENT_FILE}:{_line_of(code, m.start())}: no se permiten pragmas ({{-# ... #-}}) en la solución"
+            "pragma_not_allowed",
+            line,
+            f"{STUDENT_FILE}:{line}: pragmas ({{-# ... #-}}) are not allowed in the solution",
         )
     m = _MODULE_DECL.search(code)
     if m:
+        line = _line_of(code, m.start())
         raise Rejected(
-            f"{STUDENT_FILE}:{_line_of(code, m.start())}: no incluyas la declaración 'module'; "
-            "escribe solo las importaciones y las definiciones"
+            "module_declaration_not_allowed",
+            line,
+            f"{STUDENT_FILE}:{line}: do not include a 'module' declaration; "
+            "write only the imports and the definitions",
         )
 
 

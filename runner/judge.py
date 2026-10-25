@@ -7,13 +7,21 @@ returns the verdict as a dictionary ready to be serialized to JSON:
     {"status": "OK", "passed": 6, "total": 6}
     {"status": "WRONG_ANSWER", "passed": 1, "total": 6,
      "test": {"index": 2, "expr": "total [1,2,3]", "expected": "6", "obtained": "1"}}
-    {"status": "COMPILATION_ERROR", "source": "student", "message": "solucion.hs:3:29: error: ..."}
+    {"status": "COMPILATION_ERROR", "source": "student", "message": "solution.hs:3:29: error: ..."}
     {"status": "COMPILATION_ERROR", "source": "tests", "message": "...", "test": {"index": 2, "expr": "..."}}
     {"status": "RUNTIME_ERROR" | "TIME_LIMIT" | "MEMORY_LIMIT", "passed": ..., "total": ..., "test": {...}}
-    {"status": "INTERNAL_ERROR", "message": "..."}
+    {"status": "INTERNAL_ERROR", "code": "internal_error", "message": "..."}
 
 If the failing test is hidden, "test" only contains {"index": i, "hidden": true}
 (plus "reason" for TIME_LIMIT).
+
+Messages written by the executor itself (not by GHC or by the student program)
+come with a stable "code", so that the client can show its own localized text;
+"message" is then a default text in English:
+
+    pragma_not_allowed, module_declaration_not_allowed   (with "line")
+    hidden_test_type_mismatch, compile_limits_exceeded,
+    program_crashed, internal_error
 
 Compatible with Python 3.8.
 """
@@ -46,10 +54,11 @@ MEMORY_MARGIN_MB = 100
 # Exit code of the GHC RTS when the heap is exhausted and nobody catches it.
 RTS_HEAP_EXHAUSTED = 251
 
-# Messages shown to students (in Spanish).
-COMPILE_LIMITS_MESSAGE = "La compilación ha excedido los límites de tiempo o memoria."
-CRASH_MESSAGE = "El programa terminó de forma inesperada."
-INTERNAL_MESSAGE = "Error interno del ejecutor."
+COMPILE_LIMITS_MESSAGE = "Compilation exceeded the time or memory limits."
+CRASH_MESSAGE = "The program ended unexpectedly."
+INTERNAL_MESSAGE = "Internal executor error."
+
+INTERNAL_ERROR = {"status": "INTERNAL_ERROR", "code": "internal_error", "message": INTERNAL_MESSAGE}
 
 __all__ = ["Config", "InvalidRequest", "Limits", "judge"]
 
@@ -104,7 +113,7 @@ def judge(
     try:
         files = generate(sub)
     except Rejected as e:
-        return {"status": "COMPILATION_ERROR", "source": "student", "message": str(e)}
+        return {"status": "COMPILATION_ERROR", "source": "student", "code": e.code, "line": e.line, "message": str(e)}
     try:
         with Box(box_id, config.isolate) as box:
             files["Judge.hs"] = Path(config.judge_hs).read_text(encoding="utf-8")
@@ -121,7 +130,7 @@ def judge(
             return _run(box, sub, limits, config)
     except SandboxError:
         log.exception("sandbox failure")
-        return {"status": "INTERNAL_ERROR", "message": INTERNAL_MESSAGE}
+        return dict(INTERNAL_ERROR)
 
 
 def ghc_flags(config: Config) -> List[str]:
@@ -165,13 +174,20 @@ def _compile(box: Box, sub: Submission, limits: Limits, config: Config) -> Optio
     if meta.ok:
         return None
     if meta.status == "TO" or meta.oom_killed:
-        return {"status": "COMPILATION_ERROR", "source": "student", "message": COMPILE_LIMITS_MESSAGE}
+        return {
+            "status": "COMPILATION_ERROR",
+            "source": "student",
+            "code": "compile_limits_exceeded",
+            "message": COMPILE_LIMITS_MESSAGE,
+        }
     output = box.read("compile.err")
     f = summarize(output, _hidden(sub))
     if f.source == "internal":
         log.error("internal compilation error: %s\n%s", meta.fields, output)
-        return {"status": "INTERNAL_ERROR", "message": INTERNAL_MESSAGE}
+        return dict(INTERNAL_ERROR)
     result = {"status": "COMPILATION_ERROR", "source": f.source, "message": f.message}
+    if f.code is not None:
+        result["code"] = f.code
     if f.test is not None:
         result["test"] = _test_info(sub, f.test)
     return result
@@ -227,10 +243,10 @@ def _verdict(events: List[dict], meta: Meta, sub: Submission) -> dict:
     elif meta.status == "TO":
         result = {"status": "TIME_LIMIT"}
     elif index is not None:
-        result = {"status": "RUNTIME_ERROR"}
+        result = {"status": "RUNTIME_ERROR", "code": "program_crashed"}
     else:
         log.error("the program ended without running any test: %s", meta.fields)
-        return {"status": "INTERNAL_ERROR", "message": INTERNAL_MESSAGE}
+        return dict(INTERNAL_ERROR)
     result.update(passed=(index - 1) if index else 0, total=total)
     if index is not None:
         info = _test_info(sub, index)

@@ -53,18 +53,36 @@ Respuestas (siempre HTTP 200; el veredicto va en `status`):
 {"status": "WRONG_ANSWER", "passed": 1, "total": 3,
  "test": {"index": 2, "expr": "suma [1,2,3]", "expected": "6", "obtained": "1"}}
 {"status": "RUNTIME_ERROR", "passed": 0, "total": 3,
- "test": {"index": 1, "expr": "suma []", "exception": "solucion.hs:2:1-25: Non-exhaustive patterns in function suma\n"}}
+ "test": {"index": 1, "expr": "suma []", "exception": "solution.hs:2:1-25: Non-exhaustive patterns in function suma\n"}}
 {"status": "TIME_LIMIT", "passed": 2, "total": 3, "test": {"index": 3, "hidden": true, "reason": "timeout"}}
 {"status": "MEMORY_LIMIT", "passed": 0, "total": 3, "test": {"index": 1, "expr": "suma []"}}
-{"status": "COMPILATION_ERROR", "source": "student", "message": "solucion.hs:3:29: error: ..."}
+{"status": "COMPILATION_ERROR", "source": "student", "message": "solution.hs:3:29: error: ..."}
 {"status": "COMPILATION_ERROR", "source": "tests", "message": "tests:2:24: error: ...", "test": {"index": 2, "expr": "suma \"abc\""}}
-{"status": "INTERNAL_ERROR", "message": "Error interno del ejecutor."}
+{"status": "COMPILATION_ERROR", "source": "student", "code": "pragma_not_allowed", "line": 1,
+ "message": "solution.hs:1: pragmas ({-# ... #-}) are not allowed in the solution"}
+{"status": "INTERNAL_ERROR", "code": "internal_error", "message": "Internal executor error."}
 ```
 
 - `TIME_LIMIT.reason`: `timeout` (tiempo de reloj del test), `allocation` (memoria
   reservada por el test, determinista), `cpu` o `wall` (límite total del proceso).
 - `COMPILATION_ERROR.source`: `student` (errores en su código, con sus números de
   línea) o `tests` (su solución no tiene el tipo que espera el test `index`).
+
+### Códigos de mensaje
+
+Los mensajes que genera el propio ejecutor (no GHC ni el programa del alumno)
+llevan un campo `code` estable y un `message` por defecto en inglés. El cliente
+puede mostrar su propio texto traducido a partir de `code`; si no hay `code`, el
+mensaje viene de GHC o del programa y se muestra tal cual.
+
+| `code` | Veredicto | Datos | Significado |
+|---|---|---|---|
+| `pragma_not_allowed` | `COMPILATION_ERROR` | `line` | La solución contiene un pragma `{-# ... #-}` |
+| `module_declaration_not_allowed` | `COMPILATION_ERROR` | `line` | La solución contiene `module ... where` |
+| `hidden_test_type_mismatch` | `COMPILATION_ERROR` | `test.index` | La solución no tiene el tipo que espera un test oculto |
+| `compile_limits_exceeded` | `COMPILATION_ERROR` | — | GHC superó los límites de tiempo o memoria |
+| `program_crashed` | `RUNTIME_ERROR` | `test` | El programa terminó sin informe (p. ej. por una señal) |
+| `internal_error` | `INTERNAL_ERROR` | — | Fallo del sandbox o de la configuración (detalles en el log) |
 - Errores de la petición: 422 (formato o límites fuera de rango), 400 (extensión no
   permitida, test de varias líneas…), 503 (cola llena).
 
@@ -127,6 +145,25 @@ def evaluar(envio: dict) -> dict:
     r = _client.post("/run", json=envio)
     r.raise_for_status()
     return r.json()
+```
+
+Textos traducidos para los mensajes con `code` (con `gettext` de Django):
+
+```python
+from django.utils.translation import gettext as _
+
+MENSAJES = {
+    "pragma_not_allowed": lambda r: _("Línea %(line)d: no se permiten pragmas ({-# ... #-}) en la solución.") % r,
+    "module_declaration_not_allowed": lambda r: _("Línea %(line)d: no incluyas la declaración 'module'.") % r,
+    "hidden_test_type_mismatch": lambda r: _("Tu solución no es compatible con un test oculto: revisa los tipos de tus funciones."),
+    "compile_limits_exceeded": lambda r: _("La compilación ha excedido los límites de tiempo o memoria."),
+    "program_crashed": lambda r: _("El programa terminó de forma inesperada."),
+    "internal_error": lambda r: _("Error interno del juez. Inténtalo de nuevo más tarde."),
+}
+
+def mensaje(resultado: dict) -> str:
+    texto = MENSAJES.get(resultado.get("code"))
+    return texto(resultado) if texto else resultado.get("message", "")
 ```
 
 ## Rendimiento (máquina de desarrollo, 3 cajas)

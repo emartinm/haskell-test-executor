@@ -2,7 +2,7 @@
 
 Thanks to the LINE pragmas set by codegen, each GHC error tells its origin:
 
-  solucion.hs:L:C   error in the student code, line L of their code
+  solution.hs:L:C   error in the student code, line L of their code
   tests:I:C         error compiling test I (usually, the student solution does
                     not have the type the test expects)
   anything else     internal error: teacher definitions, harness, linking...
@@ -20,10 +20,10 @@ from .codegen import STUDENT_FILE, TESTS_FILE
 
 MAX_MESSAGE = 4000
 
-# Shown to the student (in Spanish).
+HIDDEN_TEST_CODE = "hidden_test_type_mismatch"
 HIDDEN_TEST_MESSAGE = (
-    "La solución no es compatible con un test oculto: revisa que los tipos de tus "
-    "funciones coinciden con los del enunciado."
+    "The solution is not compatible with a hidden test: check that the types of "
+    "your functions match the ones in the problem statement."
 )
 
 _LOCATED = re.compile(
@@ -48,6 +48,7 @@ class CompileFailure:
     source: str  # "student" | "tests" | "internal"
     message: str
     test: Optional[int] = None  # test index, if source == "tests"
+    code: Optional[str] = None  # set when the message is ours and not GHC's
 
 
 def parse(output: str) -> List[Diagnostic]:
@@ -94,7 +95,7 @@ def summarize(output: str, hidden: Collection[int] = ()) -> CompileFailure:
     if tests:
         index = min(d.line for d in tests)
         if index in hidden:
-            return CompileFailure("tests", HIDDEN_TEST_MESSAGE, index)
+            return CompileFailure("tests", HIDDEN_TEST_MESSAGE, index, HIDDEN_TEST_CODE)
         return CompileFailure("tests", _join([d for d in tests if d.line == index]), index)
 
     return CompileFailure("internal", _truncate(output.strip()))
