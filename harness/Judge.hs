@@ -1,8 +1,8 @@
 {-# LANGUAGE ExistentialQuantification #-}
 
--- | Harness del ejecutor: ejecuta los tests en orden y se detiene en el primer fallo.
+-- | Executor harness: runs the tests in order and stops at the first failure.
 --
--- Protocolo: escribe en el fichero de resultados una línea JSON por evento.
+-- Protocol: writes one JSON line per event to the results file.
 --
 -- > {"event":"start","test":3}
 -- > {"event":"end","status":"OK","passed":6,"total":6}
@@ -11,18 +11,18 @@
 -- > {"event":"end","status":"TIME_LIMIT","reason":"timeout","test":1,"passed":0,"total":6}
 -- > {"event":"end","status":"MEMORY_LIMIT","test":1,"passed":0,"total":6}
 --
--- Los tests se numeran desde 1. Si el proceso muere (OOM-kill, límite de CPU del
--- sandbox) no habrá línea "end": el runner usa el último "start" para saber en
--- qué test ocurrió.
+-- Tests are numbered from 1. If the process dies (OOM kill, sandbox CPU limit)
+-- there will be no "end" line: the runner uses the last "start" to know which
+-- test it happened in.
 --
--- Argumentos (key=value, el último gana):
+-- Arguments (key=value, the last one wins):
 --
---   * @out@        fichero de resultados (por defecto @result.json@)
---   * @timeout_ms@ tiempo de reloj máximo por test (por defecto 2000)
---   * @alloc_mb@   memoria reservada máxima por test, TLE determinista (por defecto 4000)
---   * @max_show@   caracteres máximos al mostrar valores y mensajes (por defecto 1000)
+--   * @out@        results file (default @result.json@)
+--   * @timeout_ms@ maximum wall-clock time per test (default 2000)
+--   * @alloc_mb@   maximum memory allocated per test, deterministic TLE (default 4000)
+--   * @max_show@   maximum characters when showing values and messages (default 1000)
 --
--- Solo depende de @base@.
+-- It only depends on @base@.
 module Judge (Test (..), runTests) where
 
 import Control.Exception
@@ -46,14 +46,15 @@ import System.IO (BufferMode (..), IOMode (..), hPutStrLn, hSetBuffering, withFi
 import System.Mem (disableAllocationLimit, enableAllocationLimit, setAllocationCounter)
 import System.Timeout (Timeout, timeout)
 
--- | Un test: valor obtenido (código del alumno) y valor esperado.
+-- | A test: obtained value (student code) and expected value.
 --
--- Se comparan con '==' sin forzarlos antes, así que un resultado infinito o
--- parcialmente indefinido da WRONG_ANSWER en cuanto difiere del esperado.
+-- They are compared with '==' without forcing them first, so an infinite or
+-- partially undefined result gives WRONG_ANSWER as soon as it differs from the
+-- expected one.
 data Test = forall a. (Eq a, Show a) => Test a a
 
 -- ---------------------------------------------------------------------------
--- Configuración
+-- Configuration
 
 data Config = Config
   { cfgOut :: FilePath
@@ -87,12 +88,12 @@ readInt v = case reads v of
   _ -> Nothing
 
 -- ---------------------------------------------------------------------------
--- Ejecución de los tests
+-- Running the tests
 
 data Failure
-  = WrongAnswer String String -- esperado y obtenido, ya renderizados
+  = WrongAnswer String String -- expected and obtained, already rendered
   | RuntimeError String
-  | TimeLimit String -- "timeout" o "allocation"
+  | TimeLimit String -- "timeout" or "allocation"
   | MemoryLimit
 
 runTests :: [Test] -> IO ()
@@ -128,9 +129,9 @@ runOne cfg (Test actual expected) = do
     Left (RuntimeError msg) -> Just . RuntimeError <$> render cfg msg
     Left f -> pure (Just f)
 
--- | Ejecuta una acción con timeout de reloj y límite de reserva de memoria,
--- capturando cualquier excepción. Requiere compilar el código del alumno con
--- -fno-omit-yields para que el timeout interrumpa bucles que no reservan memoria.
+-- | Runs an action with a wall-clock timeout and a memory allocation limit,
+-- catching any exception. The student code must be compiled with
+-- -fno-omit-yields so that the timeout can interrupt loops that do not allocate.
 guarded :: Config -> IO a -> IO (Either Failure a)
 guarded cfg act = do
   r <- timeout (cfgTimeoutUs cfg) (try limited)
@@ -150,13 +151,13 @@ classify e
   | Just AllocationLimitExceeded <- fromException e = TimeLimit "allocation"
   | Just HeapOverflow <- fromException e = MemoryLimit
   | Just StackOverflow <- fromException e = RuntimeError "stack overflow"
-  -- Se muestra la excepción interna: desde GHC 9.10, displayException sobre
-  -- SomeException añade una traza interna del runtime que no aporta al alumno.
+  -- Show the inner exception: since GHC 9.10, displayException on SomeException
+  -- adds an internal runtime backtrace that is useless to the student.
   | SomeException inner <- e = RuntimeError (displayException inner)
 
--- | Convierte una cadena perezosa (el show de un valor del alumno o el mensaje
--- de una excepción) en texto seguro: como mucho cfgMaxShow caracteres, y
--- "<error>" en el punto donde su evaluación falla o tarda demasiado.
+-- | Turns a lazy string (the show of a student value or the message of an
+-- exception) into safe text: at most cfgMaxShow characters, and "<error>" at
+-- the point where its evaluation fails or takes too long.
 render :: Config -> String -> IO String
 render cfg s = do
   acc <- newIORef []
@@ -178,7 +179,7 @@ failureFields f = case f of
   MemoryLimit -> [("status", JStr "MEMORY_LIMIT")]
 
 -- ---------------------------------------------------------------------------
--- JSON mínimo
+-- Minimal JSON
 
 data JValue = JStr String | JInt Int
 
@@ -188,8 +189,8 @@ jsonObject kvs = "{" ++ intercalate "," [jsonString k ++ ":" ++ value v | (k, v)
     value (JStr s) = jsonString s
     value (JInt n) = show n
 
--- | Cadena JSON con todo lo que no sea ASCII imprimible escapado como \uXXXX,
--- para que la salida no dependa de la codificación del entorno.
+-- | JSON string with everything that is not printable ASCII escaped as \uXXXX,
+-- so that the output does not depend on the encoding of the environment.
 jsonString :: String -> String
 jsonString s = "\"" ++ concatMap escape s ++ "\""
   where

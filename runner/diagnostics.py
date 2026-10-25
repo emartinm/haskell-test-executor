@@ -1,13 +1,13 @@
-"""Interpretación de los errores de compilación de GHC.
+"""Interpretation of GHC compilation errors.
 
-Gracias a los pragmas LINE que pone codegen, cada error de GHC indica su origen:
+Thanks to the LINE pragmas set by codegen, each GHC error tells its origin:
 
-  solucion.hs:L:C   error en el código del alumno, línea L de su código
-  tests:I:C         error al compilar el test I (normalmente, la solución del
-                    alumno no tiene el tipo que el test espera)
-  cualquier otro    error interno: definiciones del profesor, harness, enlazado...
+  solucion.hs:L:C   error in the student code, line L of their code
+  tests:I:C         error compiling test I (usually, the student solution does
+                    not have the type the test expects)
+  anything else     internal error: teacher definitions, harness, linking...
 
-Compatible con Python 3.8.
+Compatible with Python 3.8.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from .codegen import STUDENT_FILE, TESTS_FILE
 
 MAX_MESSAGE = 4000
 
+# Shown to the student (in Spanish).
 HIDDEN_TEST_MESSAGE = (
     "La solución no es compatible con un test oculto: revisa que los tipos de tus "
     "funciones coinciden con los del enunciado."
@@ -46,11 +47,11 @@ class Diagnostic:
 class CompileFailure:
     source: str  # "student" | "tests" | "internal"
     message: str
-    test: Optional[int] = None  # índice del test, si source == "tests"
+    test: Optional[int] = None  # test index, if source == "tests"
 
 
 def parse(output: str) -> List[Diagnostic]:
-    """Separa la salida de GHC en diagnósticos (errores y warnings)."""
+    """Splits the GHC output into diagnostics (errors and warnings)."""
     diags: List[Diagnostic] = []
     block: List[str] = []
 
@@ -78,10 +79,10 @@ def parse(output: str) -> List[Diagnostic]:
 
 
 def summarize(output: str, hidden: Collection[int] = ()) -> CompileFailure:
-    """Resume la salida de una compilación fallida.
+    """Summarizes the output of a failed compilation.
 
-    Prioridad: errores del alumno, después el primer test que no compila y, si
-    no hay ninguno de los dos, error interno con la salida completa.
+    Priority: student errors, then the first test that does not compile and,
+    if there is neither, an internal error with the full output.
     """
     errors = [d for d in parse(output) if d.severity == "error"]
 

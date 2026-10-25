@@ -1,9 +1,9 @@
-"""Prueba de carga: N envíos simultáneos contra el servicio por su socket Unix.
+"""Load test: N simultaneous submissions against the service through its Unix socket.
 
-    python3 load_test.py [N] [socket]        (por defecto 30 y /run/haskell-test-executor/executor.sock)
+    python3 load_test.py [N] [socket]        (default 30 and /run/haskell-test-executor/executor.sock)
 
-Cada envío es distinto (el alumno no se cachea) y comparte las definiciones,
-como en una clase resolviendo el mismo problema. Necesita httpx.
+Each submission is different (student code is not cached) and they share the
+definitions, like a class solving the same problem. Requires httpx.
 """
 
 import sys
@@ -16,36 +16,36 @@ import httpx
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 30
 SOCKET = sys.argv[2] if len(sys.argv) > 2 else "/run/haskell-test-executor/executor.sock"
 
-DEFINITIONS = "data Arbol a = Hoja | Nodo (Arbol a) a (Arbol a)\n  deriving (Show, Eq)\n"
+DEFINITIONS = "data Tree a = Leaf | Node (Tree a) a (Tree a)\n  deriving (Show, Eq)\n"
 TESTS = [
-    {"expr": "suma []", "expected": "0"},
-    {"expr": "suma [1,2,3]", "expected": "6"},
-    {"expr": "enOrden (Nodo (Nodo Hoja 1 Hoja) 2 (Nodo Hoja 3 Hoja))", "expected": "[1, 2, 3]"},
-    {"expr": "profundidad (Nodo Hoja 'a' (Nodo Hoja 'b' Hoja))", "expected": "2"},
-    {"expr": "suma [1 .. 100000]", "expected": "5000050000", "hidden": True},
+    {"expr": "total []", "expected": "0"},
+    {"expr": "total [1,2,3]", "expected": "6"},
+    {"expr": "inOrder (Node (Node Leaf 1 Leaf) 2 (Node Leaf 3 Leaf))", "expected": "[1, 2, 3]"},
+    {"expr": "depth (Node Leaf 'a' (Node Leaf 'b' Leaf))", "expected": "2"},
+    {"expr": "total [1 .. 100000]", "expected": "5000050000", "hidden": True},
 ]
 
 
 def submission(i: int) -> dict:
     code = f"""\
--- envío {i}
-suma :: [Int] -> Int
-suma = foldr (+) 0
+-- submission {i}
+total :: [Int] -> Int
+total = foldr (+) 0
 
-enOrden :: Arbol a -> [a]
-enOrden Hoja = []
-enOrden (Nodo l x r) = enOrden l ++ [x] ++ enOrden r
+inOrder :: Tree a -> [a]
+inOrder Leaf = []
+inOrder (Node l x r) = inOrder l ++ [x] ++ inOrder r
 
-profundidad :: Arbol a -> Int
-profundidad Hoja = 0
-profundidad (Nodo l _ r) = 1 + max (profundidad l) (profundidad r)
+depth :: Tree a -> Int
+depth Leaf = 0
+depth (Node l _ r) = 1 + max (depth l) (depth r)
 """
     return {"student_code": code, "definitions": DEFINITIONS, "tests": TESTS}
 
 
 def main() -> None:
     client = httpx.Client(transport=httpx.HTTPTransport(uds=SOCKET), base_url="http://executor", timeout=120)
-    # Un envío previo para que la caché ya tenga Judge y las definiciones.
+    # A warm-up submission so that the cache already holds Judge and the definitions.
     client.post("/run", json=submission(-1)).raise_for_status()
 
     latencies = [0.0] * N
@@ -68,9 +68,9 @@ def main() -> None:
     total = time.perf_counter() - start
 
     lat = sorted(latencies)
-    print(f"{N} envíos simultáneos en {total:.2f} s ({N / total:.1f} envíos/s)")
-    print(f"latencia: mín {lat[0]:.2f} s, mediana {lat[N // 2]:.2f} s, p90 {lat[int(N * 0.9)]:.2f} s, máx {lat[-1]:.2f} s")
-    print("veredictos:", dict(Counter(statuses)))
+    print(f"{N} simultaneous submissions in {total:.2f} s ({N / total:.1f} submissions/s)")
+    print(f"latency: min {lat[0]:.2f} s, median {lat[N // 2]:.2f} s, p90 {lat[int(N * 0.9)]:.2f} s, max {lat[-1]:.2f} s")
+    print("verdicts:", dict(Counter(statuses)))
     print("health:", client.get("/health").json())
 
 

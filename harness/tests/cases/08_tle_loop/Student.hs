@@ -3,18 +3,18 @@ module Student where
 
 import Defs
 
--- Bucle infinito que no reserva memoria: solo lo detiene el timeout, y solo
--- si se compila con -fno-omit-yields.
-suma :: [Int] -> Int
-suma xs = suma xs
+-- Infinite loop that does not allocate: only the timeout stops it, and only
+-- if compiled with -fno-omit-yields.
+total :: [Int] -> Int
+total xs = total xs
 
-inversa :: [a] -> [a]
-inversa = foldl (flip (:)) []
+reversed :: [a] -> [a]
+reversed = foldl (flip (:)) []
 
-enOrden :: Arbol a -> [a]
-enOrden Hoja = []
-enOrden (Nodo i x d) = enOrden i ++ [x] ++ enOrden d
+inOrder :: Tree a -> [a]
+inOrder Leaf = []
+inOrder (Node l x r) = inOrder l ++ [x] ++ inOrder r
 
-profundidad :: Arbol a -> Int
-profundidad Hoja = 0
-profundidad (Nodo i _ d) = 1 + max (profundidad i) (profundidad d)
+depth :: Tree a -> Int
+depth Leaf = 0
+depth (Node l _ r) = 1 + max (depth l) (depth r)

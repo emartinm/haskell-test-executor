@@ -1,25 +1,23 @@
-"""Generación de los ficheros Haskell de un envío.
+"""Generation of the Haskell files for a submission.
 
-A partir del código del alumno, las definiciones del profesor y los tests se
-generan los módulos que se compilan junto al harness (harness/Judge.hs):
+From the student code, the teacher definitions and the tests, it generates the
+modules that are compiled together with the harness (harness/Judge.hs):
 
-  Defs.hs      definiciones del profesor, marcadas Trustworthy
-  Student.hs   código del alumno, en modo Safe y precedido de una cabecera
-  Tests.hs     módulo Main que pasa los tests a Judge.runTests
-  solucion.hs  copia literal del código del alumno
-  tests        un test por línea (jt__i = Judge.Test ...), tal como en Tests.hs
+  Defs.hs      teacher definitions, marked Trustworthy
+  Student.hs   student code, in Safe mode and preceded by a header
+  Tests.hs     Main module that passes the tests to Judge.runTests
+  solucion.hs  verbatim copy of the student code
+  tests        one test per line (jt__i = Judge.Test ...), as in Tests.hs
 
-Los pragmas {-# LINE #-} hacen que GHC informe de los errores con las líneas
-originales del alumno (fichero "solucion.hs") y, en los tests, con el índice
-del test como número de línea (fichero "tests"). Las copias "solucion.hs" y
-"tests" existen solo para que GHC muestre el fragmento de código correcto
-debajo de cada error.
+The {-# LINE #-} pragmas make GHC report errors with the original line numbers
+of the student code (file "solucion.hs") and, in the tests, with the test index
+as the line number (file "tests"). The copies "solucion.hs" and "tests" exist
+only so that GHC shows the right code snippet below each error.
 
-En las expresiones de los tests, si un nombre del alumno coincide con uno del
-Prelude (p.ej. el alumno define su propio `sum`), hay que cualificarlo:
-`Student.sum [1,2,3]`.
+In test expressions, if a student name clashes with one from the Prelude (e.g.
+the student defines their own `sum`), it must be qualified: `Student.sum [1,2,3]`.
 
-Compatible con Python 3.8.
+Compatible with Python 3.8.
 """
 
 from __future__ import annotations
@@ -28,12 +26,13 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Sequence
 
+# File name shown to students in error messages.
 STUDENT_FILE = "solucion.hs"
 TESTS_FILE = "tests"
 
-# Extensiones que un problema puede activar para el código del alumno. Las de
-# GHC2021 ya están activas; ninguna de estas afecta a la seguridad (TemplateHaskell,
-# CPP o GeneralizedNewtypeDeriving no están, y Safe Haskell las bloquearía igualmente).
+# Extensions a problem may enable for the student code. The GHC2021 ones are
+# already enabled; none of these affects security (TemplateHaskell, CPP and
+# GeneralizedNewtypeDeriving are not here, and Safe Haskell would block them anyway).
 ALLOWED_EXTENSIONS = frozenset(
     {
         "BlockArguments",
@@ -54,11 +53,11 @@ ALLOWED_EXTENSIONS = frozenset(
 
 
 class InvalidRequest(ValueError):
-    """La petición es incorrecta (responsabilidad del juez o del profesor)."""
+    """The request is invalid (responsibility of the judge or the teacher)."""
 
 
 class Rejected(Exception):
-    """El código del alumno se rechaza antes de compilarlo."""
+    """The student code is rejected before compiling it (message for the student)."""
 
 
 @dataclass(frozen=True)
@@ -82,14 +81,14 @@ _HEADER_PRAGMA = re.compile(r"\{-#\s*(?:LANGUAGE|OPTIONS_GHC)\b.*?#-\}", re.IGNO
 
 
 def generate(sub: Submission) -> Dict[str, str]:
-    """Devuelve {nombre de fichero: contenido}.
+    """Returns {file name: content}.
 
-    Lanza Rejected si el código del alumno no es admisible e InvalidRequest si
-    lo incorrecto son las definiciones, los tests o las extensiones.
+    Raises Rejected if the student code is not admissible and InvalidRequest if
+    the definitions, the tests or the extensions are invalid.
     """
     for ext in sub.extensions:
         if ext not in ALLOWED_EXTENSIONS:
-            raise InvalidRequest(f"extensión no permitida: {ext}")
+            raise InvalidRequest(f"extension not allowed: {ext}")
     code = _normalize(sub.student_code)
     _check_student_code(code)
     test_lines = _test_lines(sub.tests)
@@ -135,8 +134,8 @@ def _student_module(code: str, extensions: Sequence[str]) -> str:
 
 def _defs_module(definitions: str) -> str:
     if _MODULE_DECL.search(definitions):
-        raise InvalidRequest("las definiciones no deben incluir la declaración 'module'")
-    # Los pragmas de cabecera del profesor tienen que ir antes de 'module'.
+        raise InvalidRequest("definitions must not include a 'module' declaration")
+    # The teacher's header pragmas must go before 'module'.
     pragmas = _HEADER_PRAGMA.findall(definitions)
     body = _HEADER_PRAGMA.sub("", definitions)
     return "\n".join(["{-# LANGUAGE Trustworthy #-}", *pragmas, "module Defs where", ""]) + body
@@ -144,14 +143,14 @@ def _defs_module(definitions: str) -> str:
 
 def _test_lines(tests: Sequence[TestCase]) -> List[str]:
     if not tests:
-        raise InvalidRequest("se necesita al menos un test")
+        raise InvalidRequest("at least one test is required")
     lines = []
     for i, t in enumerate(tests, start=1):
         for name, value in (("expr", t.expr), ("expected", t.expected)):
             if not value.strip():
-                raise InvalidRequest(f"test {i}: '{name}' está vacío")
+                raise InvalidRequest(f"test {i}: '{name}' is empty")
             if "\n" in value or "\r" in value:
-                raise InvalidRequest(f"test {i}: '{name}' debe ocupar una sola línea")
+                raise InvalidRequest(f"test {i}: '{name}' must be a single line")
         lines.append(f"{_test_name(i)} = Judge.Test ({t.expr}) ({t.expected})")
     return lines
 
@@ -161,9 +160,9 @@ def _test_name(i: int) -> str:
 
 
 def _tests_module(test_lines: List[str]) -> str:
-    # Cada test es una definición aparte para que el contexto de un error de
-    # tipos nunca cite otros tests (podrían ser ocultos). La lista los nombra
-    # cualificados con Main por si el alumno define un nombre igual.
+    # Each test is a separate definition so that the context of a type error
+    # never quotes other tests (they might be hidden). The list refers to them
+    # qualified with Main in case the student defines a name with the same name.
     names = ", ".join("Main." + _test_name(i) for i in range(1, len(test_lines) + 1))
     out = [
         "module Main (main) where",

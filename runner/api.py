@@ -1,17 +1,17 @@
-"""Servicio HTTP del ejecutor seguro de Haskell.
+"""HTTP service of the secure Haskell test executor.
 
     uvicorn runner.api:app --uds /run/haskell-test-executor/executor.sock
 
-    POST /run      evalúa un envío (petición: RunRequest; respuesta: ver runner.judge)
-    GET  /health   estado del servicio
+    POST /run      evaluates a submission (request: RunRequest; response: see runner.judge)
+    GET  /health   service status
 
-Los envíos se evalúan en paralelo en un conjunto fijo de cajas de isolate; el
-resto espera en una cola acotada (503 si está llena).
+Submissions are evaluated in parallel on a fixed set of isolate boxes; the
+rest wait in a bounded queue (503 if it is full).
 
-Variables de entorno:
-    HASKELL_EXECUTOR_WORKERS    número de cajas en paralelo (por defecto 3)
-    HASKELL_EXECUTOR_MAX_QUEUE  envíos que pueden esperar (por defecto 100)
-    HASKELL_EXECUTOR_FIRST_BOX  identificador de la primera caja (por defecto 0)
+Environment variables:
+    HASKELL_EXECUTOR_WORKERS    number of boxes in parallel (default 3)
+    HASKELL_EXECUTOR_MAX_QUEUE  submissions that may wait (default 100)
+    HASKELL_EXECUTOR_FIRST_BOX  id of the first box (default 0)
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ class Busy(Exception):
 
 
 class Pool:
-    """Reparte las cajas entre los envíos; los que no caben esperan en cola."""
+    """Hands out the boxes to submissions; those that do not fit wait in a queue."""
 
     def __init__(self, first_box: int, workers: int, max_queue: int):
         self.workers = workers
@@ -58,7 +58,7 @@ class Pool:
         return self.workers - self._boxes.qsize()
 
     async def run(self, fn: Callable, *args):
-        """Ejecuta fn(box_id, *args) en un hilo cuando haya una caja libre."""
+        """Runs fn(box_id, *args) in a thread once a box is free."""
         if self._boxes.empty() and self.waiting >= self.max_queue:
             raise Busy
         self.waiting += 1
@@ -70,14 +70,14 @@ class Pool:
         try:
             return await asyncio.shield(fut)
         finally:
-            # Si el cliente se desconecta, la caja no se libera hasta que acabe.
+            # If the client disconnects, the box is not released until the work ends.
             fut.add_done_callback(lambda _: self._boxes.put_nowait(box_id))
 
     def shutdown(self) -> None:
         self._executor.shutdown(wait=True)
 
 
-# --- Modelo de la petición --------------------------------------------------
+# --- Request model -----------------------------------------------------------
 
 
 class Strict(BaseModel):
@@ -114,7 +114,7 @@ class RunRequest(Strict):
         )
 
 
-# --- Aplicación -------------------------------------------------------------
+# --- Application -------------------------------------------------------------
 
 
 @asynccontextmanager
@@ -131,31 +131,31 @@ async def lifespan(app: FastAPI):
     app.state.ghc_version = subprocess.run(
         [config.ghc, "--numeric-version"], capture_output=True, text=True, check=True
     ).stdout.strip()
-    log.info("GHC %s, %d cajas, cola de %d", app.state.ghc_version, app.state.pool.workers, app.state.pool.max_queue)
+    log.info("GHC %s, %d boxes, queue of %d", app.state.ghc_version, app.state.pool.workers, app.state.pool.max_queue)
     yield
     app.state.pool.shutdown()
 
 
-app = FastAPI(title="Ejecutor seguro de Haskell", lifespan=lifespan)
+app = FastAPI(title="Secure Haskell test executor", lifespan=lifespan)
 
 
 @app.post("/run")
 async def run(req: RunRequest) -> dict:
     sub = req.submission()
     try:
-        generate(sub)  # valida la petición antes de ocupar una caja
+        generate(sub)  # validates the request before taking a box
     except InvalidRequest as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Rejected:
-        pass  # es un veredicto: lo devuelve judge
+        pass  # it is a verdict: judge returns it
     limits = Limits(**req.limits.model_dump())
     state = app.state
     start = time.monotonic()
     try:
         result = await state.pool.run(_judge, sub, limits, state.config, state.cache)
     except Busy:
-        raise HTTPException(status_code=503, detail="cola llena, inténtalo más tarde")
-    log.info("%s en %.2f s (cola: %d)", result["status"], time.monotonic() - start, state.pool.waiting)
+        raise HTTPException(status_code=503, detail="queue is full, try again later")
+    log.info("%s in %.2f s (queued: %d)", result["status"], time.monotonic() - start, state.pool.waiting)
     return result
 
 

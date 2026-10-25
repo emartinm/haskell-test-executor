@@ -1,10 +1,10 @@
-"""Ejecución de comandos en una caja de isolate (https://github.com/ioi/isolate).
+"""Running commands in an isolate box (https://github.com/ioi/isolate).
 
-Cada caja es un directorio de trabajo (/box dentro del sandbox) con su propio
-uid sin privilegios, sin red, con el resto del sistema de ficheros en solo
-lectura y con límites de memoria, CPU y procesos aplicados por cgroups v2.
+Each box is a working directory (/box inside the sandbox) with its own
+unprivileged uid, no network, the rest of the file system read-only, and
+memory, CPU and process limits enforced by cgroups v2.
 
-Compatible con Python 3.8.
+Compatible with Python 3.8.
 """
 
 from __future__ import annotations
@@ -19,22 +19,22 @@ from typing import Dict, Mapping, Optional, Sequence
 
 
 class SandboxError(RuntimeError):
-    """Fallo del propio sandbox (no del código evaluado)."""
+    """Failure of the sandbox itself (not of the code being evaluated)."""
 
 
 @dataclass(frozen=True)
 class RunLimits:
-    time_s: float  # tiempo de CPU (todos los procesos de la caja)
+    time_s: float  # CPU time (all processes in the box)
     wall_time_s: float
-    memory_mb: int  # cgroup: memoria total de la caja
-    processes: int  # procesos e hilos
-    fsize_kb: int  # tamaño máximo de cada fichero escrito
+    memory_mb: int  # cgroup: total memory of the box
+    processes: int  # processes and threads
+    fsize_kb: int  # maximum size of each written file
     extra_time_s: float = 0.5
 
 
 @dataclass
 class Meta:
-    """Informe de isolate sobre una ejecución (fichero --meta)."""
+    """isolate's report about a run (--meta file)."""
 
     fields: Dict[str, str]
 
@@ -49,7 +49,7 @@ class Meta:
 
     @property
     def status(self) -> str:
-        """'' si terminó con código 0; si no RE, SG, TO o XX."""
+        """'' if it exited with code 0; otherwise RE, SG, TO or XX."""
         return self.fields.get("status", "")
 
     @property
@@ -71,7 +71,7 @@ class Meta:
 
 
 class Box:
-    """Caja de isolate; se usa como context manager (init / cleanup)."""
+    """An isolate box; used as a context manager (init / cleanup)."""
 
     def __init__(self, box_id: int, isolate: str = "isolate"):
         self.box_id = box_id
@@ -82,7 +82,7 @@ class Box:
         return [self.isolate, "--cg", f"--box-id={self.box_id}", *args]
 
     def __enter__(self) -> "Box":
-        # Por si quedaron restos de una ejecución interrumpida.
+        # In case there are leftovers from an interrupted run.
         subprocess.run(self._cmd("--cleanup"), capture_output=True)
         r = subprocess.run(self._cmd("--init"), capture_output=True, text=True)
         if r.returncode != 0:
@@ -103,10 +103,10 @@ class Box:
         return self.read_bytes(name, limit).decode("utf-8", errors="replace")
 
     def read_bytes(self, name: str, limit: int = 1 << 20) -> bytes:
-        """Lee un fichero escrito desde dentro de la caja (b"" si no existe).
+        """Reads a file written from inside the box (b"" if it does not exist).
 
-        No sigue enlaces simbólicos ni lee nada que no sea un fichero regular:
-        el contenido de la caja lo controla código no confiable.
+        It does not follow symbolic links nor read anything that is not a
+        regular file: the contents of the box are controlled by untrusted code.
         """
         try:
             fd = os.open(self.path / name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
@@ -127,7 +127,7 @@ class Box:
         stdout: str = "/dev/null",
         stderr: str = "/dev/null",
     ) -> Meta:
-        """Ejecuta argv en la caja (cwd /box). stdout/stderr son rutas dentro de la caja."""
+        """Runs argv in the box (cwd /box). stdout/stderr are paths inside the box."""
         fd, meta_path = tempfile.mkstemp(prefix="isolate-meta-")
         os.close(fd)
         try:
@@ -156,7 +156,7 @@ class Box:
             )
             meta = Meta.parse(Path(meta_path).read_text())
         except subprocess.TimeoutExpired as e:
-            raise SandboxError("isolate no terminó a tiempo") from e
+            raise SandboxError("isolate did not finish in time") from e
         finally:
             os.unlink(meta_path)
         if r.returncode not in (0, 1) or meta.status == "XX":

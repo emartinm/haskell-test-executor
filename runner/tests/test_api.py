@@ -1,4 +1,4 @@
-"""Pruebas de la API (fase 4). Necesitan fastapi y httpx, además de ghc e isolate."""
+"""API tests (phase 4). They need fastapi and httpx, besides ghc and isolate."""
 
 import asyncio
 import os
@@ -9,14 +9,14 @@ from runner.tests.test_sandbox import AVAILABLE
 
 try:
     from fastapi.testclient import TestClient
-except ImportError:  # fuera del contenedor puede no estar instalado
+except ImportError:  # it may not be installed outside the container
     TestClient = None
 
-SUMA = "suma :: [Int] -> Int\nsuma = sum\n"
-TESTS = [{"expr": "suma []", "expected": "0"}, {"expr": "suma [1,2,3]", "expected": "6"}]
+TOTAL = "total :: [Int] -> Int\ntotal = sum\n"
+TESTS = [{"expr": "total []", "expected": "0"}, {"expr": "total [1,2,3]", "expected": "6"}]
 
 
-@unittest.skipUnless(TestClient is not None and AVAILABLE, "se necesitan fastapi, httpx, ghc e isolate")
+@unittest.skipUnless(TestClient is not None and AVAILABLE, "requires fastapi, httpx, ghc and isolate")
 class ApiTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -31,7 +31,7 @@ class ApiTest(unittest.TestCase):
         cls.ctx.__exit__(None, None, None)
 
     def post(self, **body):
-        body.setdefault("student_code", SUMA)
+        body.setdefault("student_code", TOTAL)
         body.setdefault("tests", TESTS)
         return self.client.post("/run", json=body)
 
@@ -41,19 +41,19 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(r.json(), {"status": "OK", "passed": 2, "total": 2})
 
     def test_wrong_answer(self):
-        r = self.post(student_code="suma :: [Int] -> Int\nsuma = length\n")
-        self.assertEqual(r.json()["test"], {"index": 2, "expr": "suma [1,2,3]", "expected": "6", "obtained": "3"})
+        r = self.post(student_code="total :: [Int] -> Int\ntotal = length\n")
+        self.assertEqual(r.json()["test"], {"index": 2, "expr": "total [1,2,3]", "expected": "6", "obtained": "3"})
 
     def test_compilation_error_is_a_verdict(self):
-        r = self.post(student_code="{-# LANGUAGE CPP #-}\n" + SUMA)
+        r = self.post(student_code="{-# LANGUAGE CPP #-}\n" + TOTAL)
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["status"], "COMPILATION_ERROR")
 
     def test_limits_and_definitions(self):
         r = self.post(
-            student_code="f :: Color -> Color\nf Rojo = Azul\nf c = f c\n",
-            definitions="data Color = Rojo | Azul deriving (Show, Eq)\n",
-            tests=[{"expr": "f Rojo", "expected": "Azul"}, {"expr": "f Azul", "expected": "Rojo", "hidden": True}],
+            student_code="f :: Color -> Color\nf Red = Blue\nf c = f c\n",
+            definitions="data Color = Red | Blue deriving (Show, Eq)\n",
+            tests=[{"expr": "f Red", "expected": "Blue"}, {"expr": "f Blue", "expected": "Red", "hidden": True}],
             limits={"time_per_test_ms": 300},
         )
         self.assertEqual(r.json()["test"], {"index": 2, "hidden": True, "reason": "timeout"})
@@ -64,7 +64,7 @@ class ApiTest(unittest.TestCase):
             ({"tests": [{"expr": "f", "expected": "1", "extra": 1}]}, 422),
             ({"student_code": "x" * (64 * 1024 + 1)}, 422),
             ({"limits": {"heap_mb": 100000}}, 422),
-            ({"limits": {"inventado": 1}}, 422),
+            ({"limits": {"made_up": 1}}, 422),
             ({"extensions": ["TemplateHaskell"]}, 400),
             ({"tests": [{"expr": "f\n1", "expected": "1"}]}, 400),
         ]
@@ -73,14 +73,14 @@ class ApiTest(unittest.TestCase):
                 self.assertEqual(self.post(**body).status_code, code)
 
     def test_cache_is_used(self):
-        defs = "data Dia = Lunes | Martes deriving (Show, Eq)\n"
-        tests = [{"expr": "siguiente Lunes", "expected": "Martes"}]
-        code = "siguiente :: Dia -> Dia\nsiguiente Lunes = Martes\nsiguiente Martes = Lunes\n"
+        defs = "data Day = Monday | Tuesday deriving (Show, Eq)\n"
+        tests = [{"expr": "next Monday", "expected": "Tuesday"}]
+        code = "next :: Day -> Day\nnext Monday = Tuesday\nnext Tuesday = Monday\n"
         before = self.client.get("/health").json()["cache"]
         for _ in range(2):
             self.assertEqual(self.post(student_code=code, definitions=defs, tests=tests).json()["status"], "OK")
         after = self.client.get("/health").json()["cache"]
-        self.assertGreaterEqual(after["hits"] - before["hits"], 2)  # Judge y Defs en el 2º envío
+        self.assertGreaterEqual(after["hits"] - before["hits"], 2)  # Judge and Defs in the 2nd submission
 
     def test_health(self):
         h = self.client.get("/health").json()
@@ -88,7 +88,7 @@ class ApiTest(unittest.TestCase):
         self.assertTrue(h["ghc"].startswith("9."))
 
 
-@unittest.skipUnless(TestClient is not None, "se necesita fastapi")
+@unittest.skipUnless(TestClient is not None, "requires fastapi")
 class PoolTest(unittest.TestCase):
     def test_queue_limit_and_box_reuse(self):
         from runner.api import Busy, Pool
@@ -105,9 +105,9 @@ class PoolTest(unittest.TestCase):
 
             first = asyncio.ensure_future(pool.run(work))
             await asyncio.sleep(0.05)
-            second = asyncio.ensure_future(pool.run(work))  # espera en la cola
+            second = asyncio.ensure_future(pool.run(work))  # waits in the queue
             await asyncio.sleep(0.05)
-            with self.assertRaises(Busy):  # la cola (1) está llena
+            with self.assertRaises(Busy):  # the queue (1) is full
                 await pool.run(work)
             release.set()
             results = await asyncio.gather(first, second)

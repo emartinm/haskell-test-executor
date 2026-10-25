@@ -1,13 +1,14 @@
-"""Caché de módulos precompilados: el harness (Judge) y las definiciones de cada problema.
+"""Cache of precompiled modules: the harness (Judge) and the definitions of each problem.
 
-Con la caché, cada envío solo compila el código del alumno y los tests, lo que
-reduce a la mitad el tiempo de compilación.
+With the cache, each submission only compiles the student code and the tests,
+and only the linking step remains as a significant fixed cost.
 
-Seguridad: los .hi/.o cacheados se reutilizan en los envíos de todos los
-alumnos de un problema. Por eso se compilan en la caja *antes* de escribir en
-ella nada del alumno: un envío no puede influir en lo que se cachea.
+Security: the cached .hi/.o files are reused by the submissions of every
+student of a problem. That is why they are compiled in the box *before*
+anything from the student is written into it: a submission cannot influence
+what gets cached.
 
-La caché vive en memoria (LRU) y es segura entre hilos.
+The cache lives in memory (LRU) and is thread-safe.
 """
 
 from __future__ import annotations
@@ -37,16 +38,16 @@ class ModuleCache:
         return len(self._entries)
 
     def provide(self, box: Box, module: str, source: str, limits: Limits) -> bool:
-        """Deja el módulo compilado (.hs, .hi, .o) en la caja.
+        """Leaves the compiled module (.hs, .hi, .o) in the box.
 
-        Si no está en la caché lo compila en la caja y lo guarda. Devuelve False
-        si no compila; entonces la compilación del envío lo intentará de nuevo y
-        dará el error correspondiente.
+        If it is not cached, it is compiled in the box and stored. Returns False
+        if it does not compile; the compilation of the submission will then try
+        again and report the corresponding error.
         """
         key = self._key(module, source)
         with self._mutex:
             lock = self._building.setdefault(key, threading.Lock())
-        with lock:  # un solo hilo compila cada módulo
+        with lock:  # only one thread compiles each module
             with self._mutex:
                 entry = self._entries.get(key)
                 if entry is not None:
@@ -90,5 +91,5 @@ class ModuleCache:
         obj = box.read_bytes(f"{module}.o", MAX_ARTIFACT_BYTES)
         if not hi or not obj:
             return None
-        # El orden importa: el .o debe quedar más reciente que el .hi y el .hs.
+        # Order matters: the .o must end up newer than the .hi and the .hs.
         return {hs: source.encode("utf-8"), f"{module}.hi": hi, f"{module}.o": obj}

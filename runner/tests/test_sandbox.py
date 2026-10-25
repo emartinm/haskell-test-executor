@@ -1,4 +1,4 @@
-"""Pruebas de la fase 3: veredictos dentro de isolate y robustez del sandbox."""
+"""Phase 3 tests: verdicts inside isolate and robustness of the sandbox."""
 
 import shutil
 import subprocess
@@ -9,7 +9,7 @@ from pathlib import Path
 from runner.codegen import Submission, TestCase
 from runner.judge import COMPILE_LIMITS_MESSAGE, Config, Limits, judge
 
-BOX_ID = 9  # caja reservada para las pruebas
+BOX_ID = 9  # box reserved for the tests
 
 
 def _isolate_available():
@@ -21,76 +21,76 @@ def _isolate_available():
 
 AVAILABLE = shutil.which("ghc") is not None and _isolate_available()
 
-SUMA_OK = "suma :: [Int] -> Int\nsuma = sum\n"
-TESTS = [TestCase("suma []", "0"), TestCase("suma [1,2,3]", "6")]
+TOTAL_OK = "total :: [Int] -> Int\ntotal = sum\n"
+TESTS = [TestCase("total []", "0"), TestCase("total [1,2,3]", "6")]
 
 
-def run(code=SUMA_OK, tests=TESTS, limits=Limits(), config=None, **kw):
+def run(code=TOTAL_OK, tests=TESTS, limits=Limits(), config=None, **kw):
     return judge(Submission(student_code=code, tests=tests, **kw), limits, BOX_ID, config)
 
 
-@unittest.skipUnless(AVAILABLE, "se necesitan ghc e isolate (y pertenecer al grupo isolate)")
+@unittest.skipUnless(AVAILABLE, "requires ghc and isolate (and membership in the isolate group)")
 class VerdictTest(unittest.TestCase):
     def test_ok(self):
         self.assertEqual(run(), {"status": "OK", "passed": 2, "total": 2})
 
     def test_wrong_answer(self):
-        r = run("suma :: [Int] -> Int\nsuma [] = 0\nsuma (x:_) = x\n")
+        r = run("total :: [Int] -> Int\ntotal [] = 0\ntotal (x:_) = x\n")
         self.assertEqual(r, {
             "status": "WRONG_ANSWER", "passed": 1, "total": 2,
-            "test": {"index": 2, "expr": "suma [1,2,3]", "expected": "6", "obtained": "1"},
+            "test": {"index": 2, "expr": "total [1,2,3]", "expected": "6", "obtained": "1"},
         })
 
     def test_wrong_answer_on_hidden_test(self):
-        tests = [TestCase("suma []", "0"), TestCase("suma [1,2,3]", "6", hidden=True)]
-        r = run("suma :: [Int] -> Int\nsuma [] = 0\nsuma (x:_) = x\n", tests)
+        tests = [TestCase("total []", "0"), TestCase("total [1,2,3]", "6", hidden=True)]
+        r = run("total :: [Int] -> Int\ntotal [] = 0\ntotal (x:_) = x\n", tests)
         self.assertEqual(r["test"], {"index": 2, "hidden": True})
 
     def test_rejected_pragma(self):
-        r = run("{-# LANGUAGE TemplateHaskell #-}\n" + SUMA_OK)
+        r = run("{-# LANGUAGE TemplateHaskell #-}\n" + TOTAL_OK)
         self.assertEqual((r["status"], r["source"]), ("COMPILATION_ERROR", "student"))
 
     def test_student_compile_error(self):
-        r = run("suma :: [Int] -> Int\nsuma = sum\nf = suma True\n")
+        r = run("total :: [Int] -> Int\ntotal = sum\nf = total True\n")
         self.assertEqual((r["status"], r["source"]), ("COMPILATION_ERROR", "student"))
         self.assertTrue(r["message"].startswith("solucion.hs:3:"), r["message"])
-        self.assertIn("‘Bool’", r["message"])  # UTF-8 correcto dentro de la caja
+        self.assertIn("‘Bool’", r["message"])  # correct UTF-8 inside the box
 
     def test_tests_compile_error(self):
-        r = run("suma :: String -> Int\nsuma = length\n")
+        r = run("total :: String -> Int\ntotal = length\n")
         self.assertEqual((r["status"], r["source"]), ("COMPILATION_ERROR", "tests"))
-        self.assertEqual(r["test"], {"index": 2, "expr": "suma [1,2,3]"})
+        self.assertEqual(r["test"], {"index": 2, "expr": "total [1,2,3]"})
 
     def test_runtime_error(self):
-        r = run("suma :: [Int] -> Int\nsuma (x:xs) = x + suma xs\n")
+        r = run("total :: [Int] -> Int\ntotal (x:xs) = x + total xs\n")
         self.assertEqual((r["status"], r["test"]["index"]), ("RUNTIME_ERROR", 1))
         self.assertIn("solucion.hs:2:1", r["test"]["exception"])
 
     def test_time_limit_per_test(self):
-        r = run("suma :: [Int] -> Int\nsuma xs = suma xs\n", limits=Limits(time_per_test_ms=300))
+        r = run("total :: [Int] -> Int\ntotal xs = total xs\n", limits=Limits(time_per_test_ms=300))
         self.assertEqual(r["status"], "TIME_LIMIT")
-        self.assertEqual(r["test"], {"index": 1, "expr": "suma []", "reason": "timeout"})
+        self.assertEqual(r["test"], {"index": 1, "expr": "total []", "reason": "timeout"})
 
     def test_time_limit_allocation(self):
-        code = "suma :: [Int] -> Int\nsuma _ = length (filter (< 0) [(1 :: Int) ..])\n"
+        code = "total :: [Int] -> Int\ntotal _ = length (filter (< 0) [(1 :: Int) ..])\n"
         r = run(code, limits=Limits(alloc_per_test_mb=100, time_per_test_ms=20000))
         self.assertEqual((r["status"], r["test"]["reason"]), ("TIME_LIMIT", "allocation"))
 
     def test_time_limit_total_cpu(self):
-        # El timeout por test es enorme: tiene que actuar el límite de CPU de isolate.
-        r = run("suma :: [Int] -> Int\nsuma xs = suma xs\n",
+        # The per-test timeout is huge: isolate's CPU limit must kick in.
+        r = run("total :: [Int] -> Int\ntotal xs = total xs\n",
                 limits=Limits(time_per_test_ms=600000, run_time_s=1))
         self.assertEqual(r, {"status": "TIME_LIMIT", "passed": 0, "total": 2,
-                             "test": {"index": 1, "expr": "suma []", "reason": "cpu"}})
+                             "test": {"index": 1, "expr": "total []", "reason": "cpu"}})
 
     def test_memory_limit_heap(self):
-        code = "suma :: [Int] -> Int\nsuma _ = let ys = [(1 :: Int) ..] in length ys + sum ys\n"
+        code = "total :: [Int] -> Int\ntotal _ = let ys = [(1 :: Int) ..] in length ys + sum ys\n"
         r = run(code, limits=Limits(heap_mb=100, alloc_per_test_mb=100000, time_per_test_ms=20000))
         self.assertEqual((r["status"], r["test"]["index"]), ("MEMORY_LIMIT", 1))
 
     def test_memory_limit_cgroup(self):
-        # Heap del RTS mayor que el cgroup: el kernel mata el proceso.
-        code = "suma :: [Int] -> Int\nsuma _ = let ys = [(1 :: Int) ..] in length ys + sum ys\n"
+        # RTS heap larger than the cgroup: the kernel kills the process.
+        code = "total :: [Int] -> Int\ntotal _ = let ys = [(1 :: Int) ..] in length ys + sum ys\n"
         limits = Limits(heap_mb=4000, run_memory_mb=150, alloc_per_test_mb=100000, time_per_test_ms=20000)
         r = run(code, limits=limits)
         self.assertEqual((r["status"], r["test"]["index"], r["passed"]), ("MEMORY_LIMIT", 1, 0))
@@ -99,14 +99,14 @@ class VerdictTest(unittest.TestCase):
         from runner.cache import ModuleCache
 
         cache = ModuleCache(Config.from_env())
-        defs = "data Color = Rojo | Azul deriving (Show, Eq)\n"
-        code = "f :: Color -> Color\nf Rojo = Azul\nf Azul = Rojo\n"
-        tests = [TestCase("f Rojo", "Azul")]
+        defs = "data Color = Red | Blue deriving (Show, Eq)\n"
+        code = "f :: Color -> Color\nf Red = Blue\nf Blue = Red\n"
+        tests = [TestCase("f Red", "Blue")]
         for _ in range(2):
             sub = Submission(student_code=code, tests=tests, definitions=defs)
             self.assertEqual(judge(sub, Limits(), BOX_ID, cache=cache)["status"], "OK")
         self.assertEqual((cache.misses, cache.hits, len(cache)), (2, 2, 2))
-        # Unas definiciones que no compilan no se cachean y dan error interno.
+        # Definitions that do not compile are not cached and give an internal error.
         sub = Submission(student_code="x = 1\n", tests=[TestCase("x", "1")], definitions="data = 1\n")
         self.assertEqual(judge(sub, Limits(), BOX_ID, cache=cache)["status"], "INTERNAL_ERROR")
         self.assertEqual(len(cache), 2)
@@ -117,8 +117,8 @@ class VerdictTest(unittest.TestCase):
                              "message": COMPILE_LIMITS_MESSAGE})
 
 
-# Código del "profesor" (no está en modo Safe) que intenta salir del sandbox.
-# blocked act devuelve "blocked" si la acción falla y "LEAK: ..." si funciona.
+# "Teacher" code (not in Safe mode) that tries to escape the sandbox.
+# blocked act returns "blocked" if the action fails and "LEAK: ..." if it works.
 ATTACKS = """\
 import Control.Exception (SomeException, evaluate, try)
 import System.IO.Unsafe (unsafePerformIO)
@@ -143,7 +143,7 @@ interfaces = unsafePerformIO $ do
 """
 
 
-@unittest.skipUnless(AVAILABLE, "se necesitan ghc e isolate (y pertenecer al grupo isolate)")
+@unittest.skipUnless(AVAILABLE, "requires ghc and isolate (and membership in the isolate group)")
 class SandboxSecurityTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -170,7 +170,7 @@ class SandboxSecurityTest(unittest.TestCase):
         self.assertBlocked(f'blocked (readFile "{home}/.bashrc")')
         ghc_root = Path(self.config.ghc_root)
         if home in ghc_root.parents:
-            # Montar GHC crea los directorios intermedios: solo deben verse esos.
+            # Mounting GHC creates the intermediate directories: only those must be visible.
             next_dir = ghc_root.relative_to(home).parts[0]
             r = self.attack(TestCase(f'blocked (shell "ls -A {home}")', f'"LEAK: {next_dir}\\n"'))
             self.assertEqual(r["status"], "OK", r)
@@ -188,11 +188,11 @@ class SandboxSecurityTest(unittest.TestCase):
         r = self.attack(TestCase('take 4 (blocked (shell "id -u"))', '"LEAK"'))
         self.assertEqual(r["status"], "OK", r)
         r = self.attack(TestCase('blocked (shell "id -u")', '"LEAK: 0\\n"'))
-        self.assertEqual(r["status"], "WRONG_ANSWER", r)  # no es root
+        self.assertEqual(r["status"], "WRONG_ANSWER", r)  # not root
 
     def test_file_size_limit(self):
-        # Escribir más de fsize: o falla la escritura o el kernel mata el proceso.
-        r = self.attack(TestCase('blocked (writeFile "grande" (replicate (5 * 1024 * 1024) \'x\') >> pure "")',
+        # Writing more than fsize: either the write fails or the kernel kills the process.
+        r = self.attack(TestCase('blocked (writeFile "big" (replicate (5 * 1024 * 1024) \'x\') >> pure "")',
                                  '"blocked"'))
         self.assertIn(r["status"], ("OK", "RUNTIME_ERROR"), r)
 

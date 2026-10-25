@@ -1,5 +1,5 @@
 {-# LANGUAGE Trustworthy #-}
 module Defs where
 
-data Arbol a = Hoja | Nodo (Arbol a) a (Arbol a)
+data Tree a = Leaf | Node (Tree a) a (Tree a)
   deriving (Show, Eq)

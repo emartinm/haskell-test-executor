@@ -1,30 +1,33 @@
 #!/usr/bin/env bash
-# Benchmark de GHC para dimensionar el ejecutor de Haskell.
+# GHC benchmark to size the Haskell test executor.
 #
-# Mide tiempo (mediana de N ejecuciones) y RAM pico de:
-#   - interpretar con GHCi (ghc -e)       con harness propio y, si está instalado, con Hspec
-#   - compilar -O0 (enlace estático)      y ejecutar el binario
-#   - compilar -O0 -dynamic               y ejecutar el binario
-#   - un caso "pesado" para comparar la velocidad interpretado vs compilado
-#   - ráfagas concurrentes de 30 envíos con 3 y 4 workers
+# Measures time (median of N runs) and peak RAM of:
+#   - interpreting with GHCi (ghc -e)     with our own harness and, if installed, with Hspec
+#   - compiling -O0 (static linking)      and running the binary
+#   - compiling -O0 -dynamic              and running the binary
+#   - a "heavy" case to compare interpreted vs compiled speed
+#   - concurrent bursts of 30 submissions with 3 and 4 workers
 #
-# Uso:  bash bench_ghc.sh
-#       N=20 GHC=ghc-9.8.4 bash bench_ghc.sh
-# Requiere GNU time (/usr/bin/time; en Debian/Ubuntu: apt install time).
+# Usage:  bash bench_ghc.sh
+#         N=20 GHC=ghc-9.8.4 bash bench_ghc.sh
+# Requires GNU time (/usr/bin/time; on Debian/Ubuntu: apt install time).
 set -u
+
+# awk and sort must parse "0.22" with a decimal point regardless of the user's locale.
+export LC_ALL=C
 
 N=${N:-10}
 GHC=${GHC:-ghc}
 TIME=/usr/bin/time
 
-command -v "$GHC" >/dev/null || { echo "No encuentro $GHC"; exit 1; }
-[ -x "$TIME" ] || { echo "Falta GNU time ($TIME): sudo apt install time"; exit 1; }
+command -v "$GHC" >/dev/null || { echo "Cannot find $GHC"; exit 1; }
+[ -x "$TIME" ] || { echo "GNU time is missing ($TIME): sudo apt install time"; exit 1; }
 
 W=$(mktemp -d)
 trap 'rm -rf "$W"' EXIT
 cd "$W" || exit 1
 
-# ---------------------------------------------------------------- ficheros Haskell
+# ---------------------------------------------------------------- Haskell files
 
 cat > Defs.hs <<'EOF'
 {-# LANGUAGE Trustworthy #-}
@@ -32,12 +35,12 @@ module Defs where
 
 import Control.DeepSeq (NFData (..))
 
-data Arbol a = Hoja | Nodo (Arbol a) a (Arbol a)
+data Tree a = Leaf | Node (Tree a) a (Tree a)
   deriving (Show, Eq)
 
-instance NFData a => NFData (Arbol a) where
-  rnf Hoja         = ()
-  rnf (Nodo i x d) = rnf i `seq` rnf x `seq` rnf d
+instance NFData a => NFData (Tree a) where
+  rnf Leaf         = ()
+  rnf (Node l x r) = rnf l `seq` rnf x `seq` rnf r
 EOF
 
 cat > Student.hs <<'EOF'
@@ -46,32 +49,32 @@ module Student where
 
 import Defs
 
-suma :: [Int] -> Int
-suma []     = 0
-suma (x:xs) = x + suma xs
+total :: [Int] -> Int
+total []     = 0
+total (x:xs) = x + total xs
 
-inversa :: [a] -> [a]
-inversa = foldl (flip (:)) []
+reversed :: [a] -> [a]
+reversed = foldl (flip (:)) []
 
-esPrimo :: Int -> Bool
-esPrimo n = n > 1 && all (\d -> n `mod` d /= 0) (takeWhile (\d -> d * d <= n) [2 ..])
+isPrime :: Int -> Bool
+isPrime n = n > 1 && all (\d -> n `mod` d /= 0) (takeWhile (\d -> d * d <= n) [2 ..])
 
-primos :: Int -> [Int]
-primos n = filter esPrimo [2 .. n]
+primes :: Int -> [Int]
+primes n = filter isPrime [2 .. n]
 
-insertar :: Ord a => a -> Arbol a -> Arbol a
-insertar x Hoja = Nodo Hoja x Hoja
-insertar x t@(Nodo i y d)
-  | x < y     = Nodo (insertar x i) y d
-  | x > y     = Nodo i y (insertar x d)
+insert :: Ord a => a -> Tree a -> Tree a
+insert x Leaf = Node Leaf x Leaf
+insert x t@(Node l y r)
+  | x < y     = Node (insert x l) y r
+  | x > y     = Node l y (insert x r)
   | otherwise = t
 
-enOrden :: Arbol a -> [a]
-enOrden Hoja         = []
-enOrden (Nodo i x d) = enOrden i ++ [x] ++ enOrden d
+inOrder :: Tree a -> [a]
+inOrder Leaf         = []
+inOrder (Node l x r) = inOrder l ++ [x] ++ inOrder r
 
-fromList :: Ord a => [a] -> Arbol a
-fromList = foldr insertar Hoja
+fromList :: Ord a => [a] -> Tree a
+fromList = foldr insert Leaf
 EOF
 
 cat > Judge.hs <<'EOF'
@@ -111,21 +114,21 @@ import Student
 
 main :: IO ()
 main = runTests
-  [ Test "suma []" (suma []) 0
-  , Test "suma [1,2,3]" (suma [1, 2, 3]) 6
-  , Test "suma [1..100]" (suma [1 .. 100]) 5050
-  , Test "inversa \"\"" (inversa "") ""
-  , Test "inversa \"hola\"" (inversa "hola") "aloh"
-  , Test "inversa [1..5]" (inversa [1 .. 5 :: Int]) [5, 4, 3, 2, 1]
-  , Test "esPrimo 1" (esPrimo 1) False
-  , Test "esPrimo 2" (esPrimo 2) True
-  , Test "esPrimo 97" (esPrimo 97) True
-  , Test "esPrimo 91" (esPrimo 91) False
-  , Test "primos 30" (primos 30) [2, 3, 5, 7, 11, 13, 17, 19, 23, 29]
-  , Test "enOrden Hoja" (enOrden (Hoja :: Arbol Int)) []
-  , Test "enOrden (fromList [3,1,2])" (enOrden (fromList [3, 1, 2 :: Int])) [1, 2, 3]
-  , Test "insertar 1 Hoja" (insertar 1 Hoja) (Nodo Hoja (1 :: Int) Hoja)
-  , Test "enOrden (fromList \"haskell\")" (enOrden (fromList "haskell")) "aehkls"
+  [ Test "total []" (total []) 0
+  , Test "total [1,2,3]" (total [1, 2, 3]) 6
+  , Test "total [1..100]" (total [1 .. 100]) 5050
+  , Test "reversed \"\"" (reversed "") ""
+  , Test "reversed \"hello\"" (reversed "hello") "olleh"
+  , Test "reversed [1..5]" (reversed [1 .. 5 :: Int]) [5, 4, 3, 2, 1]
+  , Test "isPrime 1" (isPrime 1) False
+  , Test "isPrime 2" (isPrime 2) True
+  , Test "isPrime 97" (isPrime 97) True
+  , Test "isPrime 91" (isPrime 91) False
+  , Test "primes 30" (primes 30) [2, 3, 5, 7, 11, 13, 17, 19, 23, 29]
+  , Test "inOrder Leaf" (inOrder (Leaf :: Tree Int)) []
+  , Test "inOrder (fromList [3,1,2])" (inOrder (fromList [3, 1, 2 :: Int])) [1, 2, 3]
+  , Test "insert 1 Leaf" (insert 1 Leaf) (Node Leaf (1 :: Int) Leaf)
+  , Test "inOrder (fromList \"haskell\")" (inOrder (fromList "haskell")) "aehkls"
   ]
 EOF
 
@@ -135,9 +138,9 @@ import Student
 
 main :: IO ()
 main = runTests
-  [ Test "length (primos 200000)" (length (primos 200000)) 17984
-  , Test "suma [1..1000000]" (suma [1 .. 1000000]) 500000500000
-  , Test "length (enOrden (fromList [1..2000]))" (length (enOrden (fromList [1 .. 2000 :: Int]))) 2000
+  [ Test "length (primes 200000)" (length (primes 200000)) 17984
+  , Test "total [1..1000000]" (total [1 .. 1000000]) 500000500000
+  , Test "length (inOrder (fromList [1..2000]))" (length (inOrder (fromList [1 .. 2000 :: Int]))) 2000
   ]
 EOF
 
@@ -148,38 +151,38 @@ import Test.Hspec
 
 main :: IO ()
 main = hspec $ do
-  describe "suma" $ do
-    it "suma []" $ suma [] `shouldBe` 0
-    it "suma [1,2,3]" $ suma [1, 2, 3] `shouldBe` 6
-    it "suma [1..100]" $ suma [1 .. 100] `shouldBe` 5050
-  describe "inversa" $ do
-    it "inversa \"\"" $ inversa "" `shouldBe` ""
-    it "inversa \"hola\"" $ inversa "hola" `shouldBe` "aloh"
-    it "inversa [1..5]" $ inversa [1 .. 5 :: Int] `shouldBe` [5, 4, 3, 2, 1]
-  describe "primos" $ do
-    it "esPrimo 1" $ esPrimo 1 `shouldBe` False
-    it "esPrimo 2" $ esPrimo 2 `shouldBe` True
-    it "esPrimo 97" $ esPrimo 97 `shouldBe` True
-    it "esPrimo 91" $ esPrimo 91 `shouldBe` False
-    it "primos 30" $ primos 30 `shouldBe` [2, 3, 5, 7, 11, 13, 17, 19, 23, 29]
-  describe "arbol" $ do
-    it "enOrden Hoja" $ enOrden (Hoja :: Arbol Int) `shouldBe` []
-    it "enOrden (fromList [3,1,2])" $ enOrden (fromList [3, 1, 2 :: Int]) `shouldBe` [1, 2, 3]
-    it "insertar 1 Hoja" $ insertar 1 Hoja `shouldBe` Nodo Hoja (1 :: Int) Hoja
-    it "enOrden (fromList \"haskell\")" $ enOrden (fromList "haskell") `shouldBe` "aehkls"
+  describe "total" $ do
+    it "total []" $ total [] `shouldBe` 0
+    it "total [1,2,3]" $ total [1, 2, 3] `shouldBe` 6
+    it "total [1..100]" $ total [1 .. 100] `shouldBe` 5050
+  describe "reversed" $ do
+    it "reversed \"\"" $ reversed "" `shouldBe` ""
+    it "reversed \"hello\"" $ reversed "hello" `shouldBe` "olleh"
+    it "reversed [1..5]" $ reversed [1 .. 5 :: Int] `shouldBe` [5, 4, 3, 2, 1]
+  describe "primes" $ do
+    it "isPrime 1" $ isPrime 1 `shouldBe` False
+    it "isPrime 2" $ isPrime 2 `shouldBe` True
+    it "isPrime 97" $ isPrime 97 `shouldBe` True
+    it "isPrime 91" $ isPrime 91 `shouldBe` False
+    it "primes 30" $ primes 30 `shouldBe` [2, 3, 5, 7, 11, 13, 17, 19, 23, 29]
+  describe "tree" $ do
+    it "inOrder Leaf" $ inOrder (Leaf :: Tree Int) `shouldBe` []
+    it "inOrder (fromList [3,1,2])" $ inOrder (fromList [3, 1, 2 :: Int]) `shouldBe` [1, 2, 3]
+    it "insert 1 Leaf" $ insert 1 Leaf `shouldBe` Node Leaf (1 :: Int) Leaf
+    it "inOrder (fromList \"haskell\")" $ inOrder (fromList "haskell") `shouldBe` "aehkls"
 EOF
 
-# ---------------------------------------------------------------- utilidades
+# ---------------------------------------------------------------- utilities
 
 median() {
   sort -n | awk '{a[NR] = $1} END {if (NR % 2) print a[(NR + 1) / 2]; else print (a[NR / 2] + a[NR / 2 + 1]) / 2}'
 }
 
-# measure NOMBRE COMANDO : 1 ejecución de calentamiento + N medidas; mediana de tiempo y RAM pico
+# measure NAME COMMAND : 1 warm-up run + N measurements; median of time and peak RAM
 measure() {
   local name=$1 cmd=$2
   if ! bash -c "$cmd" >/dev/null 2>err.txt; then
-    printf '%-42s FALLO\n' "$name"
+    printf '%-42s FAILED\n' "$name"
     sed 's/^/    /' err.txt | head -20
     return 1
   fi
@@ -194,7 +197,7 @@ measure() {
   awk -v n="$name" -v t="$t" -v m="$m" 'BEGIN {printf "%-42s %6.2f s  %6d MB\n", n, t, m / 1024}'
 }
 
-# burst P TOTAL ETIQUETA COMANDO : lanza TOTAL envíos con P en paralelo, cada uno en su directorio
+# burst P TOTAL LABEL COMMAND : launches TOTAL submissions with P in parallel, each in its own directory
 burst() {
   local p=$1 total=$2 label=$3 cmd=$4
   rm -rf burst && mkdir burst
@@ -205,46 +208,46 @@ burst() {
   t0=$(date +%s.%N)
   seq "$total" | xargs -P "$p" -I{} bash -c "cd burst/{} && { { $cmd; } >/dev/null 2>&1 || touch FAIL; }"
   t1=$(date +%s.%N)
-  local fails
-  fails=$(find burst -name FAIL | wc -l)
-  awk -v a="$t0" -v b="$t1" -v n="$total" -v p="$p" -v l="$label" -v f="$fails" \
-    'BEGIN {printf "%-22s %2d envíos, %d workers: %6.2f s total  (%.1f envíos/s)%s\n", l, n, p, b - a, n / (b - a), (f > 0 ? "  ¡" f " FALLIDOS!" : "")}'
+  local failures
+  failures=$(find burst -name FAIL | wc -l)
+  awk -v a="$t0" -v b="$t1" -v n="$total" -v p="$p" -v l="$label" -v f="$failures" \
+    'BEGIN {printf "%-22s %2d submissions, %d workers: %6.2f s total  (%.1f submissions/s)%s\n", l, n, p, b - a, n / (b - a), (f > 0 ? "  " f " FAILED!" : "")}'
 }
 
-# ---------------------------------------------------------------- informe
+# ---------------------------------------------------------------- report
 
-echo "== Entorno"
+echo "== Environment"
 "$GHC" --version
-echo "CPU: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)  ($(nproc) hilos)"
-echo "N = $N repeticiones por medida"
+echo "CPU: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)  ($(nproc) threads)"
+echo "N = $N repetitions per measurement"
 echo
 
-echo "== Verificación (debe salir 15/15 y 3/3)"
+echo "== Check (must print 15/15 and 3/3)"
 "$GHC" -e main Light.hs 2>&1 | tail -n 3
 "$GHC" -e main Heavy.hs 2>&1 | tail -n 3
 echo
 
-echo "== Envío típico (15 tests ligeros)               tiempo     RAM pico"
-measure "GHCi: ghc -e main (harness propio)"   "$GHC -e main Light.hs"
+echo "== Typical submission (15 light tests)            time       peak RAM"
+measure "GHCi: ghc -e main (own harness)"      "$GHC -e main Light.hs"
 if "$GHC" -package hspec -e 'return ()' >/dev/null 2>&1; then
   measure "GHCi: ghc -e main (Hspec)"          "$GHC -package hspec -e main SpecLight.hs"
 else
-  printf '%-42s no instalado (opcional: cabal install --lib hspec)\n' "GHCi: ghc -e main (Hspec)"
+  printf '%-42s not installed (optional: cabal install --lib hspec)\n' "GHCi: ghc -e main (Hspec)"
 fi
-measure "Compilar -O0 (estático)"              "rm -rf b1 light; $GHC -O0 -outputdir b1 -o light Light.hs"
-measure "  ejecutar binario"                   "./light"
-measure "Compilar -O0 -dynamic"                "rm -rf b2 light_dyn; $GHC -O0 -dynamic -outputdir b2 -o light_dyn Light.hs"
-measure "  ejecutar binario"                   "./light_dyn"
+measure "Compile -O0 (static)"                 "rm -rf b1 light; $GHC -O0 -outputdir b1 -o light Light.hs"
+measure "  run binary"                         "./light"
+measure "Compile -O0 -dynamic"                 "rm -rf b2 light_dyn; $GHC -O0 -dynamic -outputdir b2 -o light_dyn Light.hs"
+measure "  run binary"                         "./light_dyn"
 echo
 
-echo "== Caso pesado (velocidad de ejecución)"
+echo "== Heavy case (execution speed)"
 measure "GHCi: ghc -e main"                    "$GHC -e main Heavy.hs"
-measure "Compilar -O0 -dynamic"                "rm -rf b3 heavy_dyn; $GHC -O0 -dynamic -outputdir b3 -o heavy_dyn Heavy.hs"
-measure "  ejecutar binario"                   "./heavy_dyn"
+measure "Compile -O0 -dynamic"                 "rm -rf b3 heavy_dyn; $GHC -O0 -dynamic -outputdir b3 -o heavy_dyn Heavy.hs"
+measure "  run binary"                         "./heavy_dyn"
 echo
 
-echo "== Ráfagas concurrentes (30 envíos)"
+echo "== Concurrent bursts (30 submissions)"
 for p in 3 4; do
-  burst "$p" 30 "GHCi"          "$GHC -e main Light.hs"
-  burst "$p" 30 "Compilar+run dyn" "$GHC -O0 -dynamic -o prog Light.hs && ./prog"
+  burst "$p" 30 "GHCi"             "$GHC -e main Light.hs"
+  burst "$p" 30 "Compile+run dyn"  "$GHC -O0 -dynamic -o prog Light.hs && ./prog"
 done

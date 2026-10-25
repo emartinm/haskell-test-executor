@@ -3,19 +3,19 @@ module Student where
 
 import Defs
 
--- Recursión no final: pasa los tests pequeños y desborda la pila (-K8m) en el
--- test 6, con un millón de elementos.
-suma :: [Int] -> Int
-suma [] = 0
-suma (x : xs) = x + suma xs
+-- Non-tail recursion: passes the small tests and overflows the stack (-K8m)
+-- in test 6, with one million elements.
+total :: [Int] -> Int
+total [] = 0
+total (x : xs) = x + total xs
 
-inversa :: [a] -> [a]
-inversa = foldl (flip (:)) []
+reversed :: [a] -> [a]
+reversed = foldl (flip (:)) []
 
-enOrden :: Arbol a -> [a]
-enOrden Hoja = []
-enOrden (Nodo i x d) = enOrden i ++ [x] ++ enOrden d
+inOrder :: Tree a -> [a]
+inOrder Leaf = []
+inOrder (Node l x r) = inOrder l ++ [x] ++ inOrder r
 
-profundidad :: Arbol a -> Int
-profundidad Hoja = 0
-profundidad (Nodo i _ d) = 1 + max (profundidad i) (profundidad d)
+depth :: Tree a -> Int
+depth Leaf = 0
+depth (Node l _ r) = 1 + max (depth l) (depth r)

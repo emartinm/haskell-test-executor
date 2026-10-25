@@ -1,19 +1,19 @@
-# Ejecutor seguro de Haskell: GHC + isolate + runner.
+# Secure Haskell test executor: GHC + isolate + runner.
 #
 #   docker build -f docker/Dockerfile -t haskell-test-executor .
 #
-#   # servicio: escucha en /run/haskell-test-executor/executor.sock, sin red
+#   # service: listens on /run/haskell-test-executor/executor.sock, without network
 #   docker run --rm --privileged --network none -v /run/haskell-test-executor:/run/haskell-test-executor haskell-test-executor
 #
-#   # pruebas
+#   # tests
 #   docker run --rm --privileged haskell-test-executor python3 -m unittest discover -t . -s runner/tests
 #
-# --privileged es necesario para que isolate cree namespaces y gestione los
-# cgroups de sus cajas. El host necesita cgroups v2 y kernel >= 5.7.
+# --privileged is required so that isolate can create namespaces and manage the
+# cgroups of its boxes. The host needs cgroups v2 and kernel >= 5.7.
 
 ARG UBUNTU=26.04
 
-# --- GHC en /opt/ghc --------------------------------------------------------
+# --- GHC in /opt/ghc ----------------------------------------------------------
 FROM ubuntu:${UBUNTU} AS ghc
 
 ARG GHC_VERSION=9.10.3
@@ -33,14 +33,14 @@ RUN curl -fsSL -o /tmp/ghc.tar.xz https://downloads.haskell.org/~ghc/${GHC_VERSI
  && make install \
  && rm -rf /tmp/ghc*
 
-# El ejecutor no usa profiling ni documentación.
+# The executor uses neither profiling nor documentation.
 RUN find /opt/ghc \( -name '*.p_hi' -o -name '*.p_o' -o -name '*_p.a' -o -name '*.p_dyn_hi' -o -name '*.p_dyn_o' \) -delete \
  && rm -rf /opt/ghc/share/doc /opt/ghc/lib/*/html
 
-# --- Imagen final -----------------------------------------------------------
+# --- Final image ----------------------------------------------------------------
 FROM ubuntu:${UBUNTU}
 
-# gcc y binutils los usa GHC para ensamblar; lld enlaza bastante más rápido que ld.bfd.
+# GHC uses gcc and binutils to assemble; lld links much faster than ld.bfd.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       ca-certificates curl gcc libc6-dev libgmp-dev libffi-dev libnuma-dev lld \
@@ -57,11 +57,11 @@ RUN apt-get update \
 
 COPY --from=ghc /opt/ghc /opt/ghc
 
-# uid/gid fijos: el directorio del socket en el host queda a nombre de este uid,
-# así que no debe coincidir con ningún usuario del host.
+# Fixed uid/gid: the socket directory on the host ends up owned by this uid, so
+# it must not match any user on the host.
 ARG EXECUTOR_UID=6000
 
-# Sin systemd no hay isolate-cg-keeper: el entrypoint prepara este cgroup.
+# Without systemd there is no isolate-cg-keeper: the entrypoint prepares this cgroup.
 RUN sed -i 's|^cg_root = .*|cg_root = /sys/fs/cgroup/isolate|' /etc/isolate \
  && groupadd --gid ${EXECUTOR_UID} executor \
  && useradd --uid ${EXECUTOR_UID} --gid executor --groups isolate --create-home executor

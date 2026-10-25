@@ -1,4 +1,4 @@
 status=RUNTIME_ERROR
 test=1
-match="exception":"jajaja
+match="exception":"hahaha
 match=...","test":1

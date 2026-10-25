@@ -1,21 +1,21 @@
-"""Evaluación completa de un envío: generar, compilar y ejecutar en el sandbox.
+"""Full evaluation of a submission: generate, compile and run in the sandbox.
 
     result = judge(Submission(...), Limits(...), box_id=0)
 
-devuelve el veredicto como un diccionario listo para serializar a JSON:
+returns the verdict as a dictionary ready to be serialized to JSON:
 
     {"status": "OK", "passed": 6, "total": 6}
     {"status": "WRONG_ANSWER", "passed": 1, "total": 6,
-     "test": {"index": 2, "expr": "suma [1,2,3]", "expected": "6", "obtained": "1"}}
+     "test": {"index": 2, "expr": "total [1,2,3]", "expected": "6", "obtained": "1"}}
     {"status": "COMPILATION_ERROR", "source": "student", "message": "solucion.hs:3:29: error: ..."}
     {"status": "COMPILATION_ERROR", "source": "tests", "message": "...", "test": {"index": 2, "expr": "..."}}
     {"status": "RUNTIME_ERROR" | "TIME_LIMIT" | "MEMORY_LIMIT", "passed": ..., "total": ..., "test": {...}}
     {"status": "INTERNAL_ERROR", "message": "..."}
 
-Si el test que falla es oculto, "test" solo contiene {"index": i, "hidden": true}
-(más "reason" en TIME_LIMIT).
+If the failing test is hidden, "test" only contains {"index": i, "hidden": true}
+(plus "reason" for TIME_LIMIT).
 
-Compatible con Python 3.8.
+Compatible with Python 3.8.
 """
 
 from __future__ import annotations
@@ -39,13 +39,14 @@ log = logging.getLogger(__name__)
 
 JUDGE_HS = Path(__file__).resolve().parents[1] / "harness" / "Judge.hs"
 
-# Margen de memoria del cgroup sobre el heap del RTS (-M): el harness debe poder
-# capturar HeapOverflow antes de que el cgroup mate el proceso.
+# Cgroup memory margin over the RTS heap (-M): the harness must be able to catch
+# HeapOverflow before the cgroup kills the process.
 MEMORY_MARGIN_MB = 100
 
-# Código de salida del RTS de GHC cuando se agota el heap sin capturarlo.
+# Exit code of the GHC RTS when the heap is exhausted and nobody catches it.
 RTS_HEAP_EXHAUSTED = 251
 
+# Messages shown to students (in Spanish).
 COMPILE_LIMITS_MESSAGE = "La compilación ha excedido los límites de tiempo o memoria."
 CRASH_MESSAGE = "El programa terminó de forma inesperada."
 INTERNAL_MESSAGE = "Error interno del ejecutor."
@@ -57,31 +58,31 @@ __all__ = ["Config", "InvalidRequest", "Limits", "judge"]
 class Limits:
     time_per_test_ms: int = 2000
     alloc_per_test_mb: int = 4000
-    heap_mb: int = 200  # -M del RTS
-    stack_mb: int = 64  # -K del RTS
-    run_time_s: float = 10.0  # CPU total de la ejecución de los tests
+    heap_mb: int = 200  # RTS -M
+    stack_mb: int = 64  # RTS -K
+    run_time_s: float = 10.0  # total CPU time for running the tests
     compile_time_s: float = 15.0
     compile_memory_mb: int = 1024
-    run_memory_mb: Optional[int] = None  # por defecto heap_mb + MEMORY_MARGIN_MB
+    run_memory_mb: Optional[int] = None  # defaults to heap_mb + MEMORY_MARGIN_MB
 
 
 @dataclass(frozen=True)
 class Config:
-    ghc: str  # ejecutable de GHC
-    ghc_root: str  # instalación de GHC; se monta en solo lectura en la caja
+    ghc: str  # GHC executable
+    ghc_root: str  # GHC installation; mounted read-only in the box
     packages: Sequence[str] = ("base", "containers")
     isolate: str = "isolate"
     judge_hs: str = str(JUDGE_HS)
-    use_lld: bool = False  # enlazar con lld: ~0,15 s menos por envío que ld.bfd
+    use_lld: bool = False  # linking with lld saves ~0.15 s per submission over ld.bfd
 
     @classmethod
     def from_env(cls) -> "Config":
-        """GHC de HASKELL_EXECUTOR_GHC o del PATH; su raíz es el padre de bin/.
+        """GHC from HASKELL_EXECUTOR_GHC or the PATH; its root is the parent of bin/.
 
-        Usa lld si está instalado (ld.lld en el PATH)."""
+        Uses lld if it is installed (ld.lld in the PATH)."""
         ghc = os.environ.get("HASKELL_EXECUTOR_GHC") or shutil.which("ghc")
         if not ghc:
-            raise RuntimeError("no se encuentra ghc (define HASKELL_EXECUTOR_GHC)")
+            raise RuntimeError("ghc not found (set HASKELL_EXECUTOR_GHC)")
         ghc = os.path.realpath(ghc)
         root = os.environ.get("HASKELL_EXECUTOR_GHC_ROOT") or str(Path(ghc).parents[1])
         return cls(ghc=ghc, ghc_root=root, use_lld=shutil.which("ld.lld") is not None)
@@ -94,10 +95,10 @@ def judge(
     config: Optional[Config] = None,
     cache: Optional["ModuleCache"] = None,
 ) -> dict:
-    """Evalúa un envío. Lanza InvalidRequest si la petición es incorrecta.
+    """Evaluates a submission. Raises InvalidRequest if the request is invalid.
 
-    Con una caché, Judge y las definiciones del problema se reutilizan ya
-    compilados y solo se compilan el código del alumno y los tests.
+    With a cache, Judge and the problem definitions are reused precompiled and
+    only the student code and the tests are compiled.
     """
     config = config or Config.from_env()
     try:
@@ -108,7 +109,7 @@ def judge(
         with Box(box_id, config.isolate) as box:
             files["Judge.hs"] = Path(config.judge_hs).read_text(encoding="utf-8")
             if cache is not None:
-                # Antes de escribir nada del alumno en la caja (ver ModuleCache).
+                # Before writing anything from the student into the box (see ModuleCache).
                 for module in ("Judge", "Defs"):
                     if cache.provide(box, module, files[f"{module}.hs"], limits):
                         del files[f"{module}.hs"]
@@ -119,12 +120,12 @@ def judge(
                 return failure
             return _run(box, sub, limits, config)
     except SandboxError:
-        log.exception("fallo del sandbox")
+        log.exception("sandbox failure")
         return {"status": "INTERNAL_ERROR", "message": INTERNAL_MESSAGE}
 
 
 def ghc_flags(config: Config) -> List[str]:
-    """Opciones comunes a toda compilación (los módulos precompilados deben usar las mismas)."""
+    """Options shared by every compilation (precompiled modules must use the same ones)."""
     flags = ["-XGHC2021", "-O0", "-dynamic", "-hide-all-packages"]
     for p in config.packages:
         flags += ["-package", p]
@@ -168,7 +169,7 @@ def _compile(box: Box, sub: Submission, limits: Limits, config: Config) -> Optio
     output = box.read("compile.err")
     f = summarize(output, _hidden(sub))
     if f.source == "internal":
-        log.error("error interno de compilación: %s\n%s", meta.fields, output)
+        log.error("internal compilation error: %s\n%s", meta.fields, output)
         return {"status": "INTERNAL_ERROR", "message": INTERNAL_MESSAGE}
     result = {"status": "COMPILATION_ERROR", "source": f.source, "message": f.message}
     if f.test is not None:
@@ -200,7 +201,7 @@ def _events(text: str) -> List[dict]:
         try:
             e = json.loads(line)
         except ValueError:
-            continue  # línea incompleta si el proceso murió escribiéndola
+            continue  # incomplete line if the process died while writing it
         if isinstance(e, dict):
             events.append(e)
     return events
@@ -218,7 +219,7 @@ def _verdict(events: List[dict], meta: Meta, sub: Submission) -> dict:
             result["test"] = info
         return result
 
-    # Sin línea final: el proceso murió. El test en curso es el último iniciado.
+    # No final line: the process died. The current test is the last one started.
     started = [e["test"] for e in events if e.get("event") == "start" and isinstance(e.get("test"), int)]
     index = started[-1] if started else None
     if meta.oom_killed or meta.exitcode == RTS_HEAP_EXHAUSTED:
@@ -228,7 +229,7 @@ def _verdict(events: List[dict], meta: Meta, sub: Submission) -> dict:
     elif index is not None:
         result = {"status": "RUNTIME_ERROR"}
     else:
-        log.error("el programa terminó sin ejecutar ningún test: %s", meta.fields)
+        log.error("the program ended without running any test: %s", meta.fields)
         return {"status": "INTERNAL_ERROR", "message": INTERNAL_MESSAGE}
     result.update(passed=(index - 1) if index else 0, total=total)
     if index is not None:

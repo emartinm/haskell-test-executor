@@ -10,10 +10,10 @@ from runner.codegen import (
     generate,
 )
 
-TESTS = [TestCase("suma []", "0"), TestCase("suma [1,2,3]", "6", hidden=True)]
+TESTS = [TestCase("total []", "0"), TestCase("total [1,2,3]", "6", hidden=True)]
 
 
-def gen(code="suma = sum\n", tests=TESTS, **kw):
+def gen(code="total = sum\n", tests=TESTS, **kw):
     return generate(Submission(student_code=code, tests=tests, **kw))
 
 
@@ -26,9 +26,9 @@ class StudentCodeTest(unittest.TestCase):
             "module Student where\n"
             "import Defs\n"
             f'{{-# LINE 1 "{STUDENT_FILE}" #-}}\n'
-            "suma = sum\n",
+            "total = sum\n",
         )
-        self.assertEqual(files[STUDENT_FILE], "suma = sum\n")
+        self.assertEqual(files[STUDENT_FILE], "total = sum\n")
 
     def test_extensions(self):
         files = gen(extensions=["LambdaCase", "MultiWayIf"])
@@ -51,7 +51,7 @@ class StudentCodeTest(unittest.TestCase):
 
     def test_rejects_module_declaration(self):
         with self.assertRaises(Rejected) as cm:
-            gen("-- mi solución\nmodule Main where\nf = 1\n")
+            gen("-- my solution\nmodule Main where\nf = 1\n")
         self.assertIn(f"{STUDENT_FILE}:2:", str(cm.exception))
 
     def test_module_as_part_of_identifier_is_fine(self):
@@ -64,10 +64,10 @@ class StudentCodeTest(unittest.TestCase):
 
 class DefinitionsTest(unittest.TestCase):
     def test_trustworthy_and_moved_pragmas(self):
-        files = gen(definitions="{-# LANGUAGE LambdaCase #-}\ndata Color = Rojo | Azul\n")
+        files = gen(definitions="{-# LANGUAGE LambdaCase #-}\ndata Color = Red | Blue\n")
         defs = files["Defs.hs"]
         self.assertTrue(defs.startswith("{-# LANGUAGE Trustworthy #-}\n{-# LANGUAGE LambdaCase #-}\nmodule Defs where\n"))
-        self.assertIn("data Color = Rojo | Azul", defs)
+        self.assertIn("data Color = Red | Blue", defs)
         self.assertEqual(defs.count("LambdaCase"), 1)
 
     def test_empty_definitions(self):
@@ -83,12 +83,12 @@ class TestsModuleTest(unittest.TestCase):
         files = gen()
         tests = files["Tests.hs"]
         self.assertIn("main = Judge.runTests [Main.jt__1, Main.jt__2]", tests)
-        self.assertIn(f'{{-# LINE 1 "{TESTS_FILE}" #-}}\njt__1 = Judge.Test (suma []) (0)\n', tests)
-        self.assertIn(f'{{-# LINE 2 "{TESTS_FILE}" #-}}\njt__2 = Judge.Test (suma [1,2,3]) (6)\n', tests)
+        self.assertIn(f'{{-# LINE 1 "{TESTS_FILE}" #-}}\njt__1 = Judge.Test (total []) (0)\n', tests)
+        self.assertIn(f'{{-# LINE 2 "{TESTS_FILE}" #-}}\njt__2 = Judge.Test (total [1,2,3]) (6)\n', tests)
         self.assertIn("import Student hiding (main)", tests)
         self.assertEqual(
             files[TESTS_FILE],
-            "jt__1 = Judge.Test (suma []) (0)\njt__2 = Judge.Test (suma [1,2,3]) (6)\n",
+            "jt__1 = Judge.Test (total []) (0)\njt__2 = Judge.Test (total [1,2,3]) (6)\n",
         )
 
     def test_invalid_tests(self):

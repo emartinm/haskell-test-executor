@@ -1,4 +1,4 @@
-"""Pruebas de integración: generan, compilan con GHC y ejecutan (sin sandbox)."""
+"""Integration tests: generate, compile with GHC and run (without sandbox)."""
 
 import json
 import shutil
@@ -19,11 +19,11 @@ GHC_FLAGS = [
     "-fdiagnostics-color=never", "-v0",
 ]
 
-ARBOL = "data Arbol a = Hoja | Nodo (Arbol a) a (Arbol a)\n  deriving (Show, Eq)\n"
+TREE = "data Tree a = Leaf | Node (Tree a) a (Tree a)\n  deriving (Show, Eq)\n"
 
 
 def run(code, tests, **kw):
-    """Devuelve ('compile', CompileFailure) o ('run', última línea de result.json)."""
+    """Returns ('compile', CompileFailure) or ('run', last line of result.json)."""
     files = generate(Submission(student_code=code, tests=tests, **kw))
     with tempfile.TemporaryDirectory() as tmp:
         d = Path(tmp)
@@ -40,7 +40,7 @@ def run(code, tests, **kw):
         return "run", json.loads(lines[-1])
 
 
-@unittest.skipUnless(GHC, "ghc no está instalado")
+@unittest.skipUnless(GHC, "ghc is not installed")
 class IntegrationTest(unittest.TestCase):
     def assertRun(self, outcome, status, test=None):
         kind, res = outcome
@@ -57,51 +57,51 @@ class IntegrationTest(unittest.TestCase):
         return res
 
     def test_ok_with_conflicting_names(self):
-        # El alumno define main y un nombre igual al de un test generado.
-        code = "suma :: [Int] -> Int\nsuma = sum\n\nmain = print 1\njt__1 = 5\n"
-        self.assertRun(run(code, [TestCase("suma []", "0"), TestCase("suma [1,2,3]", "6")]), "OK")
+        # The student defines main and a name equal to a generated test.
+        code = "total :: [Int] -> Int\ntotal = sum\n\nmain = print 1\njt__1 = 5\n"
+        self.assertRun(run(code, [TestCase("total []", "0"), TestCase("total [1,2,3]", "6")]), "OK")
 
     def test_student_type_error_reports_original_line(self):
-        code = "suma :: [Int] -> Int\nsuma [] = 0\nsuma (x:xs) = x + suma xs + True\n"
-        res = self.assertCompile(run(code, [TestCase("suma []", "0")]), "student")
+        code = "total :: [Int] -> Int\ntotal [] = 0\ntotal (x:xs) = x + total xs + True\n"
+        res = self.assertCompile(run(code, [TestCase("total []", "0")]), "student")
         self.assertTrue(res.message.startswith("solucion.hs:3:"), res.message)
-        self.assertIn("3 | suma (x:xs) = x + suma xs + True", res.message)
+        self.assertIn("3 | total (x:xs) = x + total xs + True", res.message)
 
     def test_unsafe_import_is_student_error(self):
-        code = "import System.IO.Unsafe (unsafePerformIO)\nsuma :: [Int] -> Int\nsuma = sum\n"
-        res = self.assertCompile(run(code, [TestCase("suma []", "0")]), "student")
+        code = "import System.IO.Unsafe (unsafePerformIO)\ntotal :: [Int] -> Int\ntotal = sum\n"
+        res = self.assertCompile(run(code, [TestCase("total []", "0")]), "student")
         self.assertIn("solucion.hs:1:", res.message)
         self.assertIn("Can't be safely imported", res.message)
 
     def test_wrong_type_is_reported_on_first_failing_test(self):
-        code = "suma :: String -> Int\nsuma = length\n"
-        tests = [TestCase("suma []", "0"), TestCase("suma [1,2,3]", "6"),
-                 TestCase("suma [4,5,6]", "15", hidden=True)]
+        code = "total :: String -> Int\ntotal = length\n"
+        tests = [TestCase("total []", "0"), TestCase("total [1,2,3]", "6"),
+                 TestCase("total [4,5,6]", "15", hidden=True)]
         res = self.assertCompile(run(code, tests), "tests", 2)
-        self.assertIn("suma [1,2,3]", res.message)
+        self.assertIn("total [1,2,3]", res.message)
         self.assertNotIn("4,5,6", res.message)
 
     def test_wrong_type_on_hidden_test_is_redacted(self):
-        code = "suma :: String -> Int\nsuma = length\n"
-        tests = [TestCase("suma []", "0"), TestCase("suma [4,5,6]", "15", hidden=True)]
+        code = "total :: String -> Int\ntotal = length\n"
+        tests = [TestCase("total []", "0"), TestCase("total [4,5,6]", "15", hidden=True)]
         res = self.assertCompile(run(code, tests), "tests", 2)
         self.assertEqual(res.message, HIDDEN_TEST_MESSAGE)
 
     def test_runtime_error_reports_original_line(self):
-        code = "suma :: [Int] -> Int\nsuma (x:xs) = x + suma xs\n"
-        res = self.assertRun(run(code, [TestCase("suma []", "0")]), "RUNTIME_ERROR", 1)
+        code = "total :: [Int] -> Int\ntotal (x:xs) = x + total xs\n"
+        res = self.assertRun(run(code, [TestCase("total []", "0")]), "RUNTIME_ERROR", 1)
         self.assertIn("solucion.hs:2:1", res["exception"])
 
     def test_definitions_and_wrong_answer(self):
-        code = "enOrden :: Arbol a -> [a]\nenOrden Hoja = []\nenOrden (Nodo i x d) = x : enOrden i ++ enOrden d\n"
-        tests = [TestCase("enOrden (Hoja :: Arbol Int)", "[]"),
-                 TestCase("enOrden (Nodo (Nodo Hoja 1 Hoja) 2 Hoja)", "[1, 2]")]
-        res = self.assertRun(run(code, tests, definitions=ARBOL), "WRONG_ANSWER", 2)
+        code = "inOrder :: Tree a -> [a]\ninOrder Leaf = []\ninOrder (Node l x r) = x : inOrder l ++ inOrder r\n"
+        tests = [TestCase("inOrder (Leaf :: Tree Int)", "[]"),
+                 TestCase("inOrder (Node (Node Leaf 1 Leaf) 2 Leaf)", "[1, 2]")]
+        res = self.assertRun(run(code, tests, definitions=TREE), "WRONG_ANSWER", 2)
         self.assertEqual((res["expected"], res["obtained"]), ("[1,2]", "[2,1]"))
 
     def test_extensions(self):
-        code = "signo :: Int -> Int\nsigno = \\case\n  0 -> 0\n  n -> if n > 0 then 1 else -1\n"
-        tests = [TestCase("signo (-5)", "-1")]
+        code = "sign :: Int -> Int\nsign = \\case\n  0 -> 0\n  n -> if n > 0 then 1 else -1\n"
+        tests = [TestCase("sign (-5)", "-1")]
         self.assertCompile(run(code, tests), "student")
         self.assertRun(run(code, tests, extensions=["LambdaCase"]), "OK")
 
@@ -111,8 +111,8 @@ class IntegrationTest(unittest.TestCase):
         self.assertCompile(run(code, [TestCase("sum [1,2]", "3")]), "tests", 1)
 
     def test_teacher_pragmas_in_definitions(self):
-        defs = "{-# LANGUAGE LambdaCase #-}\nesCero :: Int -> Bool\nesCero = \\case { 0 -> True; _ -> False }\n"
-        code = "f :: Int -> Bool\nf = not . esCero\n"
+        defs = "{-# LANGUAGE LambdaCase #-}\nisZero :: Int -> Bool\nisZero = \\case { 0 -> True; _ -> False }\n"
+        code = "f :: Int -> Bool\nf = not . isZero\n"
         self.assertRun(run(code, [TestCase("f 0", "False")], definitions=defs), "OK")
 
 
