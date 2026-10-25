@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Benchmark de GHC para dimensionar el juez de Haskell.
+# Benchmark de GHC para dimensionar el ejecutor de Haskell.
 #
 # Mide tiempo (mediana de N ejecuciones) y RAM pico de:
 #   - interpretar con GHCi (ghc -e)       con harness propio y, si está instalado, con Hspec

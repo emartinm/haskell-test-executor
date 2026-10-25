@@ -1,6 +1,6 @@
 """Servicio HTTP del ejecutor seguro de Haskell.
 
-    uvicorn runner.api:app --uds /run/haskell-judge/judge.sock
+    uvicorn runner.api:app --uds /run/haskell-test-executor/executor.sock
 
     POST /run      evalúa un envío (petición: RunRequest; respuesta: ver runner.judge)
     GET  /health   estado del servicio
@@ -9,9 +9,9 @@ Los envíos se evalúan en paralelo en un conjunto fijo de cajas de isolate; el
 resto espera en una cola acotada (503 si está llena).
 
 Variables de entorno:
-    HASKELL_JUDGE_WORKERS    número de cajas en paralelo (por defecto 3)
-    HASKELL_JUDGE_MAX_QUEUE  envíos que pueden esperar (por defecto 100)
-    HASKELL_JUDGE_FIRST_BOX  identificador de la primera caja (por defecto 0)
+    HASKELL_EXECUTOR_WORKERS    número de cajas en paralelo (por defecto 3)
+    HASKELL_EXECUTOR_MAX_QUEUE  envíos que pueden esperar (por defecto 100)
+    HASKELL_EXECUTOR_FIRST_BOX  identificador de la primera caja (por defecto 0)
 """
 
 from __future__ import annotations
@@ -124,9 +124,9 @@ async def lifespan(app: FastAPI):
     app.state.config = config
     app.state.cache = ModuleCache(config)
     app.state.pool = Pool(
-        first_box=int(os.environ.get("HASKELL_JUDGE_FIRST_BOX", "0")),
-        workers=int(os.environ.get("HASKELL_JUDGE_WORKERS", "3")),
-        max_queue=int(os.environ.get("HASKELL_JUDGE_MAX_QUEUE", "100")),
+        first_box=int(os.environ.get("HASKELL_EXECUTOR_FIRST_BOX", "0")),
+        workers=int(os.environ.get("HASKELL_EXECUTOR_WORKERS", "3")),
+        max_queue=int(os.environ.get("HASKELL_EXECUTOR_MAX_QUEUE", "100")),
     )
     app.state.ghc_version = subprocess.run(
         [config.ghc, "--numeric-version"], capture_output=True, text=True, check=True

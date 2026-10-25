@@ -1,0 +1,35 @@
+# Unidad systemd del ejecutor seguro de Haskell.
+#
+# Instalación en el servidor:
+#   sudo groupadd --system haskell-test-executor
+#   sudo usermod -aG haskell-test-executor <usuario de Django>
+#   sudo cp haskell-test-executor.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now haskell-test-executor
+#
+# El socket queda en /run/haskell-test-executor/executor.sock, accesible solo para el
+# grupo haskell-test-executor. El contenedor no tiene red (--network none).
+
+[Unit]
+Description=Ejecutor seguro de tests de Haskell
+Requires=docker.service
+After=docker.service
+
+[Service]
+# systemd crea /run/haskell-test-executor con grupo haskell-test-executor; el entrypoint del
+# contenedor lo deja con permisos 0750.
+Group=haskell-test-executor
+RuntimeDirectory=haskell-test-executor
+RuntimeDirectoryMode=0750
+ExecStartPre=-/usr/bin/docker rm -f haskell-test-executor
+ExecStart=/usr/bin/docker run --rm --name haskell-test-executor \
+    --privileged --network none \
+    --memory 6g --pids-limit 2048 \
+    -e HASKELL_EXECUTOR_WORKERS=3 \
+    -v /run/haskell-test-executor:/run/haskell-test-executor \
+    haskell-test-executor:latest
+ExecStop=/usr/bin/docker stop haskell-test-executor
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

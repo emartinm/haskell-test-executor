@@ -1,6 +1,6 @@
 """Prueba de carga: N envíos simultáneos contra el servicio por su socket Unix.
 
-    python3 load_test.py [N] [socket]        (por defecto 30 y /run/haskell-judge/judge.sock)
+    python3 load_test.py [N] [socket]        (por defecto 30 y /run/haskell-test-executor/executor.sock)
 
 Cada envío es distinto (el alumno no se cachea) y comparte las definiciones,
 como en una clase resolviendo el mismo problema. Necesita httpx.
@@ -14,7 +14,7 @@ from collections import Counter
 import httpx
 
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 30
-SOCKET = sys.argv[2] if len(sys.argv) > 2 else "/run/haskell-judge/judge.sock"
+SOCKET = sys.argv[2] if len(sys.argv) > 2 else "/run/haskell-test-executor/executor.sock"
 
 DEFINITIONS = "data Arbol a = Hoja | Nodo (Arbol a) a (Arbol a)\n  deriving (Show, Eq)\n"
 TESTS = [
@@ -44,7 +44,7 @@ profundidad (Nodo l _ r) = 1 + max (profundidad l) (profundidad r)
 
 
 def main() -> None:
-    client = httpx.Client(transport=httpx.HTTPTransport(uds=SOCKET), base_url="http://judge", timeout=120)
+    client = httpx.Client(transport=httpx.HTTPTransport(uds=SOCKET), base_url="http://executor", timeout=120)
     # Un envío previo para que la caché ya tenga Judge y las definiciones.
     client.post("/run", json=submission(-1)).raise_for_status()
 

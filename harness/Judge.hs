@@ -1,6 +1,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
 
--- | Harness del juez: ejecuta los tests en orden y se detiene en el primer fallo.
+-- | Harness del ejecutor: ejecuta los tests en orden y se detiene en el primer fallo.
 --
 -- Protocolo: escribe en el fichero de resultados una línea JSON por evento.
 --

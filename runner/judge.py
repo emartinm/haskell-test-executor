@@ -48,7 +48,7 @@ RTS_HEAP_EXHAUSTED = 251
 
 COMPILE_LIMITS_MESSAGE = "La compilación ha excedido los límites de tiempo o memoria."
 CRASH_MESSAGE = "El programa terminó de forma inesperada."
-INTERNAL_MESSAGE = "Error interno del juez."
+INTERNAL_MESSAGE = "Error interno del ejecutor."
 
 __all__ = ["Config", "InvalidRequest", "Limits", "judge"]
 
@@ -76,14 +76,14 @@ class Config:
 
     @classmethod
     def from_env(cls) -> "Config":
-        """GHC de HASKELL_JUDGE_GHC o del PATH; su raíz es el padre de bin/.
+        """GHC de HASKELL_EXECUTOR_GHC o del PATH; su raíz es el padre de bin/.
 
         Usa lld si está instalado (ld.lld en el PATH)."""
-        ghc = os.environ.get("HASKELL_JUDGE_GHC") or shutil.which("ghc")
+        ghc = os.environ.get("HASKELL_EXECUTOR_GHC") or shutil.which("ghc")
         if not ghc:
-            raise RuntimeError("no se encuentra ghc (define HASKELL_JUDGE_GHC)")
+            raise RuntimeError("no se encuentra ghc (define HASKELL_EXECUTOR_GHC)")
         ghc = os.path.realpath(ghc)
-        root = os.environ.get("HASKELL_JUDGE_GHC_ROOT") or str(Path(ghc).parents[1])
+        root = os.environ.get("HASKELL_EXECUTOR_GHC_ROOT") or str(Path(ghc).parents[1])
         return cls(ghc=ghc, ghc_root=root, use_lld=shutil.which("ld.lld") is not None)
 
 

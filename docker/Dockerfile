@@ -1,12 +1,12 @@
 # Ejecutor seguro de Haskell: GHC + isolate + runner.
 #
-#   docker build -f docker/Dockerfile -t haskell-judge .
+#   docker build -f docker/Dockerfile -t haskell-test-executor .
 #
-#   # servicio: escucha en /run/haskell-judge/judge.sock, sin red
-#   docker run --rm --privileged --network none -v /run/haskell-judge:/run/haskell-judge haskell-judge
+#   # servicio: escucha en /run/haskell-test-executor/executor.sock, sin red
+#   docker run --rm --privileged --network none -v /run/haskell-test-executor:/run/haskell-test-executor haskell-test-executor
 #
 #   # pruebas
-#   docker run --rm --privileged haskell-judge python3 -m unittest discover -t . -s runner/tests
+#   docker run --rm --privileged haskell-test-executor python3 -m unittest discover -t . -s runner/tests
 #
 # --privileged es necesario para que isolate cree namespaces y gestione los
 # cgroups de sus cajas. El host necesita cgroups v2 y kernel >= 5.7.
@@ -33,7 +33,7 @@ RUN curl -fsSL -o /tmp/ghc.tar.xz https://downloads.haskell.org/~ghc/${GHC_VERSI
  && make install \
  && rm -rf /tmp/ghc*
 
-# El juez no usa profiling ni documentación.
+# El ejecutor no usa profiling ni documentación.
 RUN find /opt/ghc \( -name '*.p_hi' -o -name '*.p_o' -o -name '*_p.a' -o -name '*.p_dyn_hi' -o -name '*.p_dyn_o' \) -delete \
  && rm -rf /opt/ghc/share/doc /opt/ghc/lib/*/html
 
@@ -59,12 +59,12 @@ COPY --from=ghc /opt/ghc /opt/ghc
 
 # uid/gid fijos: el directorio del socket en el host queda a nombre de este uid,
 # así que no debe coincidir con ningún usuario del host.
-ARG JUDGE_UID=6000
+ARG EXECUTOR_UID=6000
 
 # Sin systemd no hay isolate-cg-keeper: el entrypoint prepara este cgroup.
 RUN sed -i 's|^cg_root = .*|cg_root = /sys/fs/cgroup/isolate|' /etc/isolate \
- && groupadd --gid ${JUDGE_UID} judge \
- && useradd --uid ${JUDGE_UID} --gid judge --groups isolate --create-home judge
+ && groupadd --gid ${EXECUTOR_UID} executor \
+ && useradd --uid ${EXECUTOR_UID} --gid executor --groups isolate --create-home executor
 
 COPY harness /app/harness
 COPY runner /app/runner
@@ -75,4 +75,4 @@ ENV PATH=/opt/ghc/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1
 
 ENTRYPOINT ["entrypoint.sh"]
-CMD ["python3", "-m", "uvicorn", "runner.api:app", "--uds", "/run/haskell-judge/judge.sock", "--no-access-log"]
+CMD ["python3", "-m", "uvicorn", "runner.api:app", "--uds", "/run/haskell-test-executor/executor.sock", "--no-access-log"]

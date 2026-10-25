@@ -58,7 +58,7 @@ Respuestas (siempre HTTP 200; el veredicto va en `status`):
 {"status": "MEMORY_LIMIT", "passed": 0, "total": 3, "test": {"index": 1, "expr": "suma []"}}
 {"status": "COMPILATION_ERROR", "source": "student", "message": "solucion.hs:3:29: error: ..."}
 {"status": "COMPILATION_ERROR", "source": "tests", "message": "tests:2:24: error: ...", "test": {"index": 2, "expr": "suma \"abc\""}}
-{"status": "INTERNAL_ERROR", "message": "Error interno del juez."}
+{"status": "INTERNAL_ERROR", "message": "Error interno del ejecutor."}
 ```
 
 - `TIME_LIMIT.reason`: `timeout` (tiempo de reloj del test), `allocation` (memoria
@@ -76,8 +76,8 @@ Respuestas (siempre HTTP 200; el veredicto va en `status`):
 python3 -m unittest discover -t . -s runner/tests     # en local (sin fastapi se omiten las de la API)
 bash harness/run_tests.sh                             # casos del harness
 
-docker build -f docker/Dockerfile -t haskell-judge .
-docker run --rm --privileged haskell-judge python3 -m unittest discover -t . -s runner/tests
+docker build -f docker/Dockerfile -t haskell-test-executor .
+docker run --rm --privileged haskell-test-executor python3 -m unittest discover -t . -s runner/tests
 ```
 
 En local hace falta `ghc` y, para las pruebas del sandbox, `isolate` instalado y
@@ -97,20 +97,20 @@ Instalación:
 
 ```sh
 # en la máquina de desarrollo
-docker build -f docker/Dockerfile -t haskell-judge .
-docker save haskell-judge | gzip | ssh servidor 'gunzip | docker load'
+docker build -f docker/Dockerfile -t haskell-test-executor .
+docker save haskell-test-executor | gzip | ssh servidor 'gunzip | docker load'
 
 # en el servidor
-sudo groupadd --system haskell-judge
-sudo usermod -aG haskell-judge <usuario de Django>
-sudo cp docker/haskell-judge.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now haskell-judge
-curl --unix-socket /run/haskell-judge/judge.sock http://judge/health
+sudo groupadd --system haskell-test-executor
+sudo usermod -aG haskell-test-executor <usuario de Django>
+sudo cp docker/haskell-test-executor.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now haskell-test-executor
+curl --unix-socket /run/haskell-test-executor/executor.sock http://executor/health
 ```
 
-El socket solo es accesible para el grupo `haskell-judge`. El contenedor corre con
+El socket solo es accesible para el grupo `haskell-test-executor`. El contenedor corre con
 `--privileged` (lo necesita isolate) y `--network none`. Dentro, el servicio se
-ejecuta como el usuario `judge` (uid 6000, que no debe existir en el host).
+ejecuta como el usuario `executor` (uid 6000, que no debe existir en el host).
 
 ## Cliente en Django
 
@@ -118,8 +118,8 @@ ejecuta como el usuario `judge` (uid 6000, que no debe existir en el host).
 import httpx
 
 _client = httpx.Client(
-    transport=httpx.HTTPTransport(uds="/run/haskell-judge/judge.sock"),
-    base_url="http://haskell-judge",
+    transport=httpx.HTTPTransport(uds="/run/haskell-test-executor/executor.sock"),
+    base_url="http://haskell-test-executor",
     timeout=60,
 )
 

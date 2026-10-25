@@ -20,7 +20,7 @@ TESTS = [{"expr": "suma []", "expected": "0"}, {"expr": "suma [1,2,3]", "expecte
 class ApiTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        os.environ.update(HASKELL_JUDGE_FIRST_BOX="20", HASKELL_JUDGE_WORKERS="2")
+        os.environ.update(HASKELL_EXECUTOR_FIRST_BOX="20", HASKELL_EXECUTOR_WORKERS="2")
         from runner.api import app
 
         cls.ctx = TestClient(app)
