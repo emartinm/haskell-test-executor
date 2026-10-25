@@ -1,0 +1,5 @@
+status=RUNTIME_ERROR
+test=1
+match=sin implementar
+match=error, called at ./Student.hs:7:10
+nomatch=HasCallStack backtrace

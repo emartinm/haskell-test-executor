@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.o
+*.hi
+*.dyn_o
+*.dyn_hi
+.claude/settings.local.json
+.claude/.cc-writes

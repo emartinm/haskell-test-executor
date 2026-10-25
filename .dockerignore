@@ -1,0 +1,7 @@
+**/__pycache__
+**/*.o
+**/*.hi
+**/*.dyn_o
+**/*.dyn_hi
+.claude
+bench

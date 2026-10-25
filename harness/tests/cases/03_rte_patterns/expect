@@ -1,0 +1,4 @@
+status=RUNTIME_ERROR
+test=1
+match=Non-exhaustive patterns
+nomatch=HasCallStack backtrace

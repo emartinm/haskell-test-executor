@@ -1,0 +1,4 @@
+status=WRONG_ANSWER
+test=2
+match="expected":"6","obtained":"1"
+match="passed":1,"total":6

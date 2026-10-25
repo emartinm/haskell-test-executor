@@ -1,0 +1,35 @@
+# Unidad systemd del ejecutor seguro de Haskell.
+#
+# Instalación en el servidor:
+#   sudo groupadd --system haskell-judge
+#   sudo usermod -aG haskell-judge <usuario de Django>
+#   sudo cp haskell-judge.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now haskell-judge
+#
+# El socket queda en /run/haskell-judge/judge.sock, accesible solo para el
+# grupo haskell-judge. El contenedor no tiene red (--network none).
+
+[Unit]
+Description=Ejecutor seguro de Haskell (juez)
+Requires=docker.service
+After=docker.service
+
+[Service]
+# systemd crea /run/haskell-judge con grupo haskell-judge; el entrypoint del
+# contenedor lo deja con permisos 0750.
+Group=haskell-judge
+RuntimeDirectory=haskell-judge
+RuntimeDirectoryMode=0750
+ExecStartPre=-/usr/bin/docker rm -f haskell-judge
+ExecStart=/usr/bin/docker run --rm --name haskell-judge \
+    --privileged --network none \
+    --memory 6g --pids-limit 2048 \
+    -e HASKELL_JUDGE_WORKERS=3 \
+    -v /run/haskell-judge:/run/haskell-judge \
+    haskell-judge:latest
+ExecStop=/usr/bin/docker stop haskell-judge
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
