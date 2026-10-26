@@ -6,3 +6,4 @@ __pycache__/
 *.dyn_hi
 .claude/settings.local.json
 .claude/.cc-writes
+*.tar.gz
