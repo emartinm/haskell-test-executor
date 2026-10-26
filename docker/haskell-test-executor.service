@@ -8,6 +8,12 @@
 #
 # The socket ends up at /run/haskell-test-executor/executor.sock, reachable only by
 # the haskell-test-executor group. The container has no network (--network none).
+#
+# Instead of --privileged, only the capabilities that isolate needs: SYS_ADMIN (mounts
+# and namespaces of the boxes), NET_ADMIN (loopback of each box), SETUID/SETGID (box
+# users and the executor user), CHOWN/FOWNER/DAC_OVERRIDE (box and socket directories)
+# and SYS_CHROOT. Docker's seccomp filter stays enabled; AppArmor is disabled because
+# its default profile forbids the mounts of the entrypoint and of isolate.
 
 [Unit]
 Description=Secure Haskell test executor
@@ -22,7 +28,10 @@ RuntimeDirectory=haskell-test-executor
 RuntimeDirectoryMode=0750
 ExecStartPre=-/usr/bin/docker rm -f haskell-test-executor
 ExecStart=/usr/bin/docker run --rm --name haskell-test-executor \
-    --privileged --network none \
+    --network none \
+    --cap-drop ALL --cap-add SYS_ADMIN --cap-add NET_ADMIN --cap-add SETUID --cap-add SETGID \
+    --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER --cap-add SYS_CHROOT \
+    --security-opt apparmor=unconfined \
     --memory 6g --pids-limit 2048 \
     -e HASKELL_EXECUTOR_WORKERS=3 \
     -v /run/haskell-test-executor:/run/haskell-test-executor \

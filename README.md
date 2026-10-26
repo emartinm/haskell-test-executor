@@ -95,7 +95,10 @@ python3 -m unittest discover -t . -s runner/tests     # en local (sin fastapi se
 bash harness/run_tests.sh                             # casos del harness
 
 docker build -f docker/Dockerfile -t haskell-test-executor .
-docker run --rm --privileged haskell-test-executor python3 -m unittest discover -t . -s runner/tests
+docker run --rm --network none --cap-drop ALL --cap-add SYS_ADMIN --cap-add NET_ADMIN \
+  --cap-add SETUID --cap-add SETGID --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
+  --cap-add SYS_CHROOT --security-opt apparmor=unconfined \
+  haskell-test-executor python3 -m unittest discover -t . -s runner/tests
 ```
 
 En local hace falta `ghc` y, para las pruebas del sandbox, `isolate` instalado y
@@ -126,9 +129,47 @@ sudo systemctl daemon-reload && sudo systemctl enable --now haskell-test-executo
 curl --unix-socket /run/haskell-test-executor/executor.sock http://executor/health
 ```
 
-El socket solo es accesible para el grupo `haskell-test-executor`. El contenedor corre con
-`--privileged` (lo necesita isolate) y `--network none`. Dentro, el servicio se
-ejecuta como el usuario `executor` (uid 6000, que no debe existir en el host).
+El socket solo es accesible para el grupo `haskell-test-executor`. El contenedor corre sin red
+(`--network none`) y, en lugar de `--privileged`, solo con los permisos (*capabilities*) que
+necesita isolate para crear sus cajas: `SYS_ADMIN`, `NET_ADMIN`, `SETUID`, `SETGID`, `CHOWN`,
+`DAC_OVERRIDE`, `FOWNER` y `SYS_CHROOT`. Así, el root del contenedor no ve los discos del host,
+no puede cargar módulos ni cambiar parámetros del kernel, y se mantiene el filtro seccomp de
+Docker. AppArmor se desactiva para el contenedor porque su perfil por defecto impide los
+montajes que hacen el entrypoint e isolate. Dentro, el servicio se ejecuta como el usuario
+`executor` (uid 6000, que no debe existir en el host).
+
+## Actualizar la imagen
+
+Los paquetes de Ubuntu (gcc, Python, FastAPI…) e isolate se instalan con `apt` al construir
+la imagen, así que para recibir sus parches de seguridad basta con reconstruirla de vez en
+cuando (por ejemplo, una vez al mes o tras un aviso de seguridad importante):
+
+```sh
+# en la máquina de desarrollo: --pull descarga la última imagen base de Ubuntu y
+# --no-cache evita reutilizar capas antiguas (si no, apt no instalaría nada nuevo)
+docker build --pull --no-cache -f docker/Dockerfile -t haskell-test-executor .
+docker run --rm --network none --cap-drop ALL --cap-add SYS_ADMIN --cap-add NET_ADMIN \
+  --cap-add SETUID --cap-add SETGID --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
+  --cap-add SYS_CHROOT --security-opt apparmor=unconfined \
+  haskell-test-executor python3 -m unittest discover -t . -s runner/tests
+docker save haskell-test-executor | gzip | ssh servidor 'gunzip | docker load'
+
+# en el servidor
+sudo systemctl restart haskell-test-executor
+curl --unix-socket /run/haskell-test-executor/executor.sock http://executor/health
+sudo docker image prune -f        # borra la imagen anterior, que queda sin etiqueta
+```
+
+Mientras se reinicia el servicio (unos segundos), los envíos fallan con un error de conexión:
+mejor hacerlo en un momento sin actividad.
+
+**Cambiar de versión de GHC**: en `docker/Dockerfile`, actualizar `GHC_VERSION` y
+`GHC_SHA256` (en el `SHA256SUMS` de `https://downloads.haskell.org/~ghc/<versión>/`, la línea
+del fichero `GHC_BINDIST`), reconstruir y pasar también `bash harness/run_tests.sh` en local
+con la misma versión.
+
+**Cambiar de versión de Ubuntu**: actualizar `UBUNTU` y, en la línea del repositorio de
+isolate, `Suites: <nombre en clave>-isolate`.
 
 ## Cliente en Django
 

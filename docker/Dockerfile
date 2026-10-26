@@ -3,13 +3,15 @@
 #   docker build -f docker/Dockerfile -t haskell-test-executor .
 #
 #   # service: listens on /run/haskell-test-executor/executor.sock, without network
-#   docker run --rm --privileged --network none -v /run/haskell-test-executor:/run/haskell-test-executor haskell-test-executor
+#   docker run --rm --network none <capabilities> -v /run/haskell-test-executor:/run/haskell-test-executor haskell-test-executor
 #
 #   # tests
-#   docker run --rm --privileged haskell-test-executor python3 -m unittest discover -t . -s runner/tests
+#   docker run --rm --network none <capabilities> haskell-test-executor python3 -m unittest discover -t . -s runner/tests
 #
-# --privileged is required so that isolate can create namespaces and manage the
-# cgroups of its boxes. The host needs cgroups v2 and kernel >= 5.7.
+# <capabilities> are the options of docker/haskell-test-executor.service (or --privileged,
+# which also works but gives the container full control of the host): isolate needs
+# them to create namespaces and manage the cgroups of its boxes. The host needs
+# cgroups v2 and kernel >= 5.7.
 
 ARG UBUNTU=26.04
 
