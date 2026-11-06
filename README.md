@@ -10,6 +10,11 @@ del estudiante, las definiciones iniciales del problema y una lista de tests
 - Se detiene en el primer test que falla y lo describe (salvo si es oculto).
 - Todo va en un contenedor Docker sin red que escucha en un socket Unix.
 
+Documentación relacionada:
+- [DEVELOPMENT.md](DEVELOPMENT.md): pruebas, cambio de versión de GHC o de Ubuntu y rendimiento.
+- [DEPLOYMENT.md](DEPLOYMENT.md): requisitos del servidor, instalación, seguridad del contenedor
+  y actualización de la imagen (`docker/update.sh`).
+
 ## Estructura
 
 ```
@@ -89,111 +94,17 @@ mensaje viene de GHC o del programa y se muestra tal cual.
 `GET /health` devuelve versión de GHC, commit del ejecutor (`revision`, el de la imagen; `unknown`
 si se construyó sin `--build-arg REVISION=…`), sandboxes ocupados, cola y estadísticas de la caché.
 
-## Desarrollo y pruebas
+## Desarrollo y despliegue
 
 ```sh
-python3 -m unittest discover -t . -s runner/tests     # en local (sin fastapi se omiten las de la API)
-bash harness/run_tests.sh                             # casos del harness
-
+python3 -m unittest discover -t . -s runner/tests     # pruebas en local
 docker build -f docker/Dockerfile -t haskell-test-executor --build-arg REVISION=$(git rev-parse --short HEAD) .
-docker run --rm --network none --cap-drop ALL --cap-add SYS_ADMIN --cap-add NET_ADMIN \
-  --cap-add SETUID --cap-add SETGID --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
-  --cap-add SYS_CHROOT --security-opt apparmor=unconfined \
-  haskell-test-executor python3 -m unittest discover -t . -s runner/tests
 ```
 
-En local hace falta `ghc` y, para las pruebas del sandbox, `isolate` instalado y
-pertenecer al grupo `isolate`.
-
-## Despliegue en el servidor
-
-Requisitos del host (los contenedores comparten su kernel):
-
-1. **cgroups v2**: añadir `systemd.unified_cgroup_hierarchy=1` a `GRUB_CMDLINE_LINUX`
-   en `/etc/default/grub`, `sudo update-grub` y reiniciar. Comprobar con
-   `stat -fc %T /sys/fs/cgroup` → `cgroup2fs`.
-2. **Kernel ≥ 5.7** (isolate usa `clone3` con `CLONE_INTO_CGROUP`). En Ubuntu 20.04:
-   `sudo apt install linux-generic-hwe-20.04` y reiniciar.
-
-Instalación:
-
-```sh
-# en la máquina de desarrollo
-docker build -f docker/Dockerfile -t haskell-test-executor --build-arg REVISION=$(git rev-parse --short HEAD) .
-docker save haskell-test-executor | gzip | ssh servidor 'gunzip | docker load'
-
-# en el servidor
-sudo groupadd --system haskell-test-executor
-sudo usermod -aG haskell-test-executor <usuario de Django>
-sudo cp docker/haskell-test-executor.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now haskell-test-executor
-curl --unix-socket /run/haskell-test-executor/executor.sock http://executor/health
-```
-
-El socket solo es accesible para el grupo `haskell-test-executor`. El contenedor corre sin red
-(`--network none`) y, en lugar de `--privileged`, solo con los permisos (*capabilities*) que
-necesita isolate para crear sus sandboxes: `SYS_ADMIN`, `NET_ADMIN`, `SETUID`, `SETGID`, `CHOWN`,
-`DAC_OVERRIDE`, `FOWNER` y `SYS_CHROOT`. Así, el root del contenedor no ve los discos del host,
-no puede cargar módulos ni cambiar parámetros del kernel, y se mantiene el filtro seccomp de
-Docker. AppArmor se desactiva para el contenedor porque su perfil por defecto impide los
-montajes que hacen el entrypoint e isolate. Dentro, el servicio se ejecuta como el usuario
-`executor` (uid 6000, que no debe existir en el host).
-
-## Actualizar la imagen
-
-Los paquetes de Ubuntu (gcc, Python, FastAPI…) e isolate se instalan con `apt` al construir
-la imagen, así que para recibir sus parches de seguridad basta con reconstruirla de vez en
-cuando (por ejemplo, una vez al mes o tras un aviso de seguridad importante), además de cuando
-cambia el código.
-
-Lo más cómodo es construirla en el propio servidor con `docker/update.sh`, desde un clon del
-repositorio propiedad de root (quien pueda modificar ese código decide qué se ejecuta en el
-contenedor):
-
-```sh
-sudo git clone https://github.com/emartinm/haskell-test-executor.git /srv/haskell-test-executor   # la primera vez
-sudo /srv/haskell-test-executor/docker/update.sh
-```
-
-El script hace `git pull`, construye la imagen nueva sin caché y con la última imagen base de
-Ubuntu (`--pull --no-cache`, unos 8 minutos), pasa los tests dentro de ella y solo entonces la
-pone en servicio: la etiqueta como `latest` y con su commit, deja la anterior como `rollback`,
-reinicia el servicio y comprueba que evalúa un envío. Si no funciona, vuelve solo a la imagen
-anterior. Mientras construye y pasa los tests, el servicio sigue con la imagen anterior. Conserva
-las imágenes de los 3 últimos commits (`KEEP`) y avisa si `docker/haskell-test-executor.service`
-ha cambiado respecto al instalado (no lo copia: hay que revisarlo). Con `--no-pull`, construye el
-código que ya hay en el clon. Si dentro de `docker build` no se resuelven nombres (DNS),
-`BUILD_OPTS="--pull --no-cache --network host"`. Se puede programar con cron (como root); termina
-con error si algo falla.
-
-También se puede construir en otra máquina y llevar la imagen al servidor:
-
-```sh
-# en la máquina de desarrollo: --pull descarga la última imagen base de Ubuntu y
-# --no-cache evita reutilizar capas antiguas (si no, apt no instalaría nada nuevo)
-docker build --pull --no-cache -f docker/Dockerfile -t haskell-test-executor --build-arg REVISION=$(git rev-parse --short HEAD) .
-docker run --rm --network none --cap-drop ALL --cap-add SYS_ADMIN --cap-add NET_ADMIN \
-  --cap-add SETUID --cap-add SETGID --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
-  --cap-add SYS_CHROOT --security-opt apparmor=unconfined \
-  haskell-test-executor python3 -m unittest discover -t . -s runner/tests
-docker save haskell-test-executor | gzip | ssh servidor 'gunzip | docker load'
-
-# en el servidor
-sudo systemctl restart haskell-test-executor
-curl --unix-socket /run/haskell-test-executor/executor.sock http://executor/health
-sudo docker image prune -f        # borra la imagen anterior, que queda sin etiqueta
-```
-
-Mientras se reinicia el servicio (unos segundos), los envíos fallan con un error de conexión:
-mejor hacerlo en un momento sin actividad.
-
-**Cambiar de versión de GHC**: en `docker/Dockerfile`, actualizar `GHC_VERSION` y
-`GHC_SHA256` (en el `SHA256SUMS` de `https://downloads.haskell.org/~ghc/<versión>/`, la línea
-del fichero `GHC_BINDIST`), reconstruir y pasar también `bash harness/run_tests.sh` en local
-con la misma versión.
-
-**Cambiar de versión de Ubuntu**: actualizar `UBUNTU` y, en la línea del repositorio de
-isolate, `Suites: <nombre en clave>-isolate`.
+Las pruebas dentro de la imagen y los requisitos para ejecutarlas en local están en
+[DEVELOPMENT.md](DEVELOPMENT.md). En el servidor, el ejecutor es un servicio de systemd que
+arranca el contenedor sin red y con los permisos mínimos que necesita isolate; se instala y se
+actualiza (`sudo docker/update.sh`) como se explica en [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## Cliente en Django
 
@@ -230,11 +141,6 @@ def mensaje(resultado: dict) -> str:
     texto = MENSAJES.get(resultado.get("code"))
     return texto(resultado) if texto else resultado.get("message", "")
 ```
-
-## Rendimiento (máquina de desarrollo, 3 sandboxes)
-
-Un envío típico tarda ~0,3 s (compilar ~0,12 s, enlazar con lld ~0,1 s, ejecutar
-~0,02 s). 30 envíos simultáneos se resuelven en ~3 s.
 
 ## Licencia
 
