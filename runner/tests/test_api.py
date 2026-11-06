@@ -52,6 +52,17 @@ class ApiTest(unittest.TestCase):
             "message": "solution.hs:2: pragmas ({-# ... #-}) are not allowed in the solution",
         })
 
+    def test_require_signatures(self):
+        code = "total xs = sum (xs :: [Int])\n"
+        self.assertEqual(self.post(student_code=code).json()["status"], "OK")
+        r = self.post(student_code=code, require_signatures=True)
+        self.assertEqual(r.json(), {
+            "status": "COMPILATION_ERROR", "source": "student", "code": "missing_signature",
+            "signatures": [{"name": "total", "line": 1, "column": 1}],
+            "message": "solution.hs:1:1: error: missing type signature for total",
+        })
+        self.assertEqual(self.post(require_signatures=True).json()["status"], "OK")
+
     def test_limits_and_definitions(self):
         r = self.post(
             student_code="f :: Color -> Color\nf Red = Blue\nf c = f c\n",
@@ -68,6 +79,7 @@ class ApiTest(unittest.TestCase):
             ({"student_code": "x" * (64 * 1024 + 1)}, 422),
             ({"limits": {"heap_mb": 100000}}, 422),
             ({"limits": {"made_up": 1}}, 422),
+            ({"require_signatures": "yes"}, 422),
             ({"extensions": ["TemplateHaskell"]}, 400),
             ({"tests": [{"expr": "f\n1", "expected": "1"}]}, 400),
         ]

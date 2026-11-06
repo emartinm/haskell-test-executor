@@ -1,6 +1,6 @@
 import unittest
 
-from runner.diagnostics import HIDDEN_TEST_CODE, HIDDEN_TEST_MESSAGE, parse, summarize
+from runner.diagnostics import HIDDEN_TEST_CODE, HIDDEN_TEST_MESSAGE, MISSING_SIGNATURE_CODE, parse, summarize
 
 # Real GHC 9.10.3 output (trimmed).
 STUDENT_ERROR = """\
@@ -31,6 +31,27 @@ tests:2:25: error: [GHC-83865]
   |
 2 | jt__2 = Judge.Test (total "abc") (6)
   |                         ^^^^^
+"""
+
+MISSING_SIGNATURES = """\
+solution.hs:1:1: error: [GHC-38417] [-Wmissing-signatures, Werror=missing-signatures]
+    Top-level binding with no type signature: doble :: Num a => a -> a
+  |
+1 | doble x = x + x
+  | ^^^^^
+
+solution.hs:3:1: error: [GHC-38417] [-Wmissing-signatures, Werror=missing-signatures]
+    Top-level binding with no type signature:
+      (<+>) :: [a] -> [a] -> [a]
+  |
+3 | (<+>) a b = a ++ b
+  | ^^^^^
+
+solution.hs:4:7: error: [GHC-38417] [-Wmissing-signatures, Werror=missing-signatures]
+    Top-level binding with no type signature: dos :: Char
+  |
+4 | (uno, dos) = (1 :: Int, 'c')
+  |       ^^^
 """
 
 INTERNAL_ERROR = """\
@@ -75,6 +96,36 @@ class SummarizeTest(unittest.TestCase):
     def test_hidden_test_is_redacted(self):
         f = summarize(TESTS_ERROR, hidden={2})
         self.assertEqual((f.source, f.test, f.message, f.code), ("tests", 2, HIDDEN_TEST_MESSAGE, HIDDEN_TEST_CODE))
+
+    def test_missing_signatures_without_types(self):
+        f = summarize(MISSING_SIGNATURES)
+        self.assertEqual((f.source, f.code, f.test), ("student", MISSING_SIGNATURE_CODE, None))
+        self.assertEqual(f.signatures, [
+            {"name": "doble", "line": 1, "column": 1},
+            {"name": "(<+>)", "line": 3, "column": 1},
+            {"name": "dos", "line": 4, "column": 7},
+        ])
+        self.assertEqual(f.message, (
+            "solution.hs:1:1: error: missing type signature for doble\n"
+            "solution.hs:3:1: error: missing type signature for (<+>)\n"
+            "solution.hs:4:7: error: missing type signature for dos"
+        ))
+        for leak in ("::", "Num a", "[a]", "Char"):
+            self.assertNotIn(leak, f.message)
+
+    def test_missing_signature_unexpected_format(self):
+        # Neither the name nor the type are given away if GHC changes the text.
+        output = "solution.hs:(2,1)-(3,4): error: [GHC-38417]\n    Some new text: f :: Int\n"
+        f = summarize(output)
+        self.assertEqual((f.code, f.signatures), (MISSING_SIGNATURE_CODE, [{"name": None, "line": 2, "column": 1}]))
+        self.assertEqual(f.message, "solution.hs:2:1: error: missing type signature")
+
+    def test_other_student_errors_go_first(self):
+        f = summarize(STUDENT_ERROR + MISSING_SIGNATURES)
+        self.assertEqual((f.source, f.code, f.signatures), ("student", None, None))
+        self.assertIn("solution.hs:3:31", f.message)
+        self.assertNotIn("38417", f.message)
+        self.assertNotIn("doble", f.message)
 
     def test_internal(self):
         f = summarize(INTERNAL_ERROR)

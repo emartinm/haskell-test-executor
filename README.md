@@ -43,7 +43,8 @@ bench/                  benchmark de GHC y prueba de carga
     {"expr": "suma [1 .. 100000]", "expected": "5000050000", "hidden": true}
   ],
   "extensions": ["LambdaCase"],
-  "limits": {"time_per_test_ms": 2000, "alloc_per_test_mb": 4000, "heap_mb": 200, "stack_mb": 64, "run_time_s": 10}
+  "limits": {"time_per_test_ms": 2000, "alloc_per_test_mb": 4000, "heap_mb": 200, "stack_mb": 64, "run_time_s": 10},
+  "require_signatures": true
 }
 ```
 
@@ -65,6 +66,9 @@ Respuestas (siempre HTTP 200; el veredicto va en `status`):
 {"status": "COMPILATION_ERROR", "source": "tests", "message": "tests:2:24: error: ...", "test": {"index": 2, "expr": "suma \"abc\""}}
 {"status": "COMPILATION_ERROR", "source": "student", "code": "pragma_not_allowed", "line": 1,
  "message": "solution.hs:1: pragmas ({-# ... #-}) are not allowed in the solution"}
+{"status": "COMPILATION_ERROR", "source": "student", "code": "missing_signature",
+ "signatures": [{"name": "doble", "line": 3, "column": 1}],
+ "message": "solution.hs:3:1: error: missing type signature for doble"}
 {"status": "INTERNAL_ERROR", "code": "internal_error", "message": "Internal executor error."}
 ```
 
@@ -72,6 +76,14 @@ Respuestas (siempre HTTP 200; el veredicto va en `status`):
   reservada por el test, determinista), `cpu` o `wall` (límite total del proceso).
 - `COMPILATION_ERROR.source`: `student` (errores en su código, con sus números de
   línea) o `tests` (su solución no tiene el tipo que espera el test `index`).
+- `require_signatures` (por defecto `false`): toda definición global del estudiante debe
+  tener firma de tipo (`-Werror=missing-signatures`; las de `where` y `let` no). Si falta
+  alguna, la respuesta lleva el código `missing_signature` y, en `signatures`, el nombre
+  (`null` si no se ha podido extraer), la línea y la columna de cada definición sin firma,
+  en orden. El mensaje de GHC no se devuelve nunca porque incluye el tipo inferido, que
+  es la respuesta de los problemas en que se pide escribir el tipo de una función. Si hay
+  otros errores, se informa solo de ellos (GHC no comprueba las firmas hasta que el
+  código compila).
 
 ### Códigos de mensaje
 
@@ -84,6 +96,7 @@ mensaje viene de GHC o del programa y se muestra tal cual.
 |---|---|---|---|
 | `pragma_not_allowed` | `COMPILATION_ERROR` | `line` | La solución contiene un pragma `{-# ... #-}` |
 | `module_declaration_not_allowed` | `COMPILATION_ERROR` | `line` | La solución contiene `module ... where` |
+| `missing_signature` | `COMPILATION_ERROR` | `signatures` | Con `require_signatures`, alguna definición global no tiene firma de tipo |
 | `hidden_test_type_mismatch` | `COMPILATION_ERROR` | `test.index` | La solución no tiene el tipo que espera un test oculto |
 | `compile_limits_exceeded` | `COMPILATION_ERROR` | — | GHC superó los límites de tiempo o memoria |
 | `program_crashed` | `RUNTIME_ERROR` | `test` | El programa terminó sin informe (p. ej. por una señal) |
@@ -131,6 +144,9 @@ from django.utils.translation import gettext as _
 MENSAJES = {
     "pragma_not_allowed": lambda r: _("Línea %(line)d: no se permiten pragmas ({-# ... #-}) en la solución.") % r,
     "module_declaration_not_allowed": lambda r: _("Línea %(line)d: no incluyas la declaración 'module'.") % r,
+    "missing_signature": lambda r: "\n".join(
+        _("Línea %(line)d: falta la firma de tipo de %(name)s.") % s for s in r["signatures"]
+    ),
     "hidden_test_type_mismatch": lambda r: _("Tu solución no es compatible con un test oculto: revisa los tipos de tus funciones."),
     "compile_limits_exceeded": lambda r: _("La compilación ha excedido los límites de tiempo o memoria."),
     "program_crashed": lambda r: _("El programa terminó de forma inesperada."),

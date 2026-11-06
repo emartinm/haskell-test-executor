@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from runner.codegen import Submission, TestCase, generate
-from runner.diagnostics import HIDDEN_TEST_MESSAGE, summarize
+from runner.diagnostics import HIDDEN_TEST_MESSAGE, MISSING_SIGNATURE_CODE, summarize
 
 ROOT = Path(__file__).resolve().parents[2]
 JUDGE = ROOT / "harness" / "Judge.hs"
@@ -109,6 +109,26 @@ class IntegrationTest(unittest.TestCase):
         code = "import Prelude hiding (sum)\nsum :: [Int] -> Int\nsum = foldr (+) 0\n"
         self.assertRun(run(code, [TestCase("Student.sum [1,2]", "3")]), "OK")
         self.assertCompile(run(code, [TestCase("sum [1,2]", "3")]), "tests", 1)
+
+    def test_require_signatures(self):
+        code = (
+            "data Color = Red | Blue deriving (Show, Eq)\n"
+            "double :: Int -> Int\ndouble x = aux x\n  where aux y = y + y\n"
+            "headPlusLength = \\xs -> head xs + length xs\n"
+            "x `mix` y = [x, y]\n"
+        )
+        tests = [TestCase("double 2", "4")]
+        self.assertRun(run(code, tests), "OK")
+        res = self.assertCompile(run(code, tests, require_signatures=True), "student")
+        self.assertEqual(res.code, MISSING_SIGNATURE_CODE)
+        self.assertEqual(res.signatures, [
+            {"name": "headPlusLength", "line": 5, "column": 1},
+            {"name": "mix", "line": 6, "column": 3},
+        ])
+        self.assertNotIn("Int", res.message)
+        complete = code.replace("headPlusLength =", "headPlusLength :: [Int] -> Int\nheadPlusLength =")
+        complete = complete.replace("x `mix`", "mix :: a -> a -> [a]\nx `mix`")
+        self.assertRun(run(complete, tests, require_signatures=True), "OK")
 
     def test_teacher_pragmas_in_definitions(self):
         defs = "{-# LANGUAGE LambdaCase #-}\nisZero :: Int -> Bool\nisZero = \\case { 0 -> True; _ -> False }\n"

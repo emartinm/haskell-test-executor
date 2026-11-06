@@ -27,7 +27,7 @@ from contextlib import asynccontextmanager
 from typing import Callable
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from .cache import ModuleCache
 from .codegen import InvalidRequest, Rejected, Submission, TestCase, generate
@@ -105,6 +105,7 @@ class RunRequest(Strict):
     tests: list[TestIn] = Field(min_length=1, max_length=500)
     extensions: list[str] = Field(default_factory=list, max_length=20)
     limits: LimitsIn = LimitsIn()
+    require_signatures: StrictBool = False
 
     def submission(self) -> Submission:
         return Submission(
@@ -112,6 +113,7 @@ class RunRequest(Strict):
             definitions=self.definitions,
             tests=[TestCase(t.expr, t.expected, t.hidden) for t in self.tests],
             extensions=list(self.extensions),
+            require_signatures=self.require_signatures,
         )
 
 

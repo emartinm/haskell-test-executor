@@ -4,7 +4,8 @@ From the student code, the teacher definitions and the tests, it generates the
 modules that are compiled together with the harness (harness/Judge.hs):
 
   Defs.hs      teacher definitions, marked Trustworthy
-  Student.hs   student code, in Safe mode and preceded by a header
+  Student.hs   student code, in Safe mode and preceded by a header (which makes
+               missing type signatures an error if the submission requires them)
   Tests.hs     Main module that passes the tests to Judge.runTests
   solution.hs  verbatim copy of the student code
   tests        one test per line (jt__i = Judge.Test ...), as in Tests.hs
@@ -83,6 +84,9 @@ class Submission:
     tests: Sequence[TestCase]
     definitions: str = ""
     extensions: Sequence[str] = field(default_factory=tuple)
+    # Every top-level binding of the student needs a type signature
+    # (-Werror=missing-signatures; see diagnostics.MISSING_SIGNATURE_CODE).
+    require_signatures: bool = False
 
 
 _PRAGMA = re.compile(r"\{-#")
@@ -104,7 +108,7 @@ def generate(sub: Submission) -> Dict[str, str]:
     test_lines = _test_lines(sub.tests)
     return {
         "Defs.hs": _defs_module(_normalize(sub.definitions)),
-        "Student.hs": _student_module(code, sub.extensions),
+        "Student.hs": _student_module(code, sub.extensions, sub.require_signatures),
         "Tests.hs": _tests_module(test_lines),
         STUDENT_FILE: code,
         TESTS_FILE: "".join(line + "\n" for line in test_lines),
@@ -140,10 +144,12 @@ def _check_student_code(code: str) -> None:
         )
 
 
-def _student_module(code: str, extensions: Sequence[str]) -> str:
+def _student_module(code: str, extensions: Sequence[str], require_signatures: bool = False) -> str:
     header = ["{-# LANGUAGE Safe, NoGeneralizedNewtypeDeriving #-}"]
     if extensions:
         header.append("{-# LANGUAGE " + ", ".join(extensions) + " #-}")
+    if require_signatures:
+        header.append("{-# OPTIONS_GHC -Werror=missing-signatures #-}")
     header += ["module Student where", "import Defs", f'{{-# LINE 1 "{STUDENT_FILE}" #-}}']
     return "\n".join(header) + "\n" + code
 

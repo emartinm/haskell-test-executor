@@ -34,6 +34,15 @@ class StudentCodeTest(unittest.TestCase):
         files = gen(extensions=["LambdaCase", "MultiWayIf"])
         self.assertIn("{-# LANGUAGE LambdaCase, MultiWayIf #-}\nmodule Student", files["Student.hs"])
 
+    def test_require_signatures(self):
+        self.assertNotIn("missing-signatures", gen()["Student.hs"])
+        files = gen(extensions=["LambdaCase"], require_signatures=True)
+        self.assertIn(
+            "{-# LANGUAGE LambdaCase #-}\n{-# OPTIONS_GHC -Werror=missing-signatures #-}\nmodule Student",
+            files["Student.hs"],
+        )
+        self.assertNotIn("missing-signatures", files["Defs.hs"] + files["Tests.hs"])
+
     def test_extension_not_allowed(self):
         for ext in ["TemplateHaskell", "CPP", "Unsafe", "GeneralizedNewtypeDeriving"]:
             with self.assertRaises(InvalidRequest):

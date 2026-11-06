@@ -20,6 +20,7 @@ come with a stable "code", so that the client can show its own localized text;
 "message" is then a default text in English:
 
     pragma_not_allowed, module_declaration_not_allowed   (with "line")
+    missing_signature   (with "signatures": [{"name", "line", "column"}])
     hidden_test_type_mismatch, compile_limits_exceeded,
     program_crashed, internal_error
 
@@ -188,6 +189,8 @@ def _compile(box: Box, sub: Submission, limits: Limits, config: Config) -> Optio
     result = {"status": "COMPILATION_ERROR", "source": f.source, "message": f.message}
     if f.code is not None:
         result["code"] = f.code
+    if f.signatures is not None:
+        result["signatures"] = f.signatures
     if f.test is not None:
         result["test"] = _test_info(sub, f.test)
     return result

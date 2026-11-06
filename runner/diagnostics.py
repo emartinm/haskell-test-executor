@@ -7,6 +7,12 @@ Thanks to the LINE pragmas set by codegen, each GHC error tells its origin:
                     not have the type the test expects)
   anything else     internal error: teacher definitions, harness, linking...
 
+When the submission requires type signatures, GHC reports each top-level binding
+without one as an error GHC-38417 whose text includes the inferred type. That
+text is never returned (it would give away the answer of the problems that ask
+for the type of a function): those errors are replaced by our own message with
+code "missing_signature" and the name and position of each binding.
+
 Compatible with Python 3.8.
 """
 
@@ -14,7 +20,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Collection, List, Optional
+from typing import Collection, Dict, List, Optional
 
 from .codegen import STUDENT_FILE, TESTS_FILE
 
@@ -34,6 +40,12 @@ _LOCATED = re.compile(
 _UNLOCATED = re.compile(r"^<no location info>: (?P<severity>error|warning)")
 _PROGRESS = re.compile(r"^(\[\s*\d+ of \d+\] Compiling |Linking )")
 
+MISSING_SIGNATURE_CODE = "missing_signature"
+_MISSING_SIGNATURE = "[GHC-38417]"
+# "Top-level binding with no type signature: name :: type" (the name may go on the next line)
+_SIGNATURE_NAME = re.compile(r"no type signature:\s*(?P<name>[^\s][^\n]*?)\s+::")
+_COLUMN = re.compile(r"^[^:\n]+:(?:\d+:(?P<c1>\d+)|\(\d+,(?P<c2>\d+)\))")
+
 
 @dataclass
 class Diagnostic:
@@ -49,6 +61,8 @@ class CompileFailure:
     message: str
     test: Optional[int] = None  # test index, if source == "tests"
     code: Optional[str] = None  # set when the message is ours and not GHC's
+    # code == "missing_signature": [{"name": str | None, "line": int, "column": int}]
+    signatures: Optional[List[Dict]] = None
 
 
 def parse(output: str) -> List[Diagnostic]:
@@ -89,7 +103,14 @@ def summarize(output: str, hidden: Collection[int] = ()) -> CompileFailure:
 
     student = [d for d in errors if d.file == STUDENT_FILE]
     if student:
-        return CompileFailure("student", _join(student))
+        # GHC only reports missing signatures when there are no other errors, but
+        # just in case, the other errors go first and the signatures are left for later.
+        other = [d for d in student if _MISSING_SIGNATURE not in d.text]
+        if other:
+            return CompileFailure("student", _join(other))
+        signatures = [_missing_signature(d) for d in student]
+        message = "\n".join(_signature_message(s) for s in signatures)
+        return CompileFailure("student", message, code=MISSING_SIGNATURE_CODE, signatures=signatures)
 
     tests = [d for d in errors if d.file == TESTS_FILE and d.line is not None]
     if tests:
@@ -99,6 +120,22 @@ def summarize(output: str, hidden: Collection[int] = ()) -> CompileFailure:
         return CompileFailure("tests", _join([d for d in tests if d.line == index]), index)
 
     return CompileFailure("internal", _truncate(output.strip()))
+
+
+def _missing_signature(d: Diagnostic) -> Dict:
+    """Name and position of a binding without signature, never its type."""
+    name = _SIGNATURE_NAME.search(d.text)
+    column = _COLUMN.match(d.text)  # always matches: d comes from a located diagnostic
+    return {
+        "name": name.group("name") if name else None,
+        "line": d.line,
+        "column": int(column.group("c1") or column.group("c2")),
+    }
+
+
+def _signature_message(s: Dict) -> str:
+    name = f" for {s['name']}" if s["name"] else ""
+    return f"{STUDENT_FILE}:{s['line']}:{s['column']}: error: missing type signature{name}"
 
 
 def _join(diags: List[Diagnostic]) -> str:
