@@ -1,12 +1,12 @@
 # Ejecutor seguro de Haskell
 
 Servicio que evalúa envíos de Haskell para un juez automático: recibe el código
-del alumno, las definiciones iniciales del problema y una lista de tests
+del estudiante, las definiciones iniciales del problema y una lista de tests
 `(expresión, valor esperado)`, y devuelve el veredicto en JSON.
 
 - Compila con GHC 9.10.3 y ejecuta en cajas de [isolate](https://github.com/ioi/isolate)
   (sin red, uid sin privilegios, límites de CPU, memoria y procesos por cgroups v2).
-- El código del alumno se compila en modo Safe Haskell y no puede contener pragmas.
+- El código del estudiante se compila en modo Safe Haskell y no puede contener pragmas.
 - Se detiene en el primer test que falla y lo describe (salvo si es oculto).
 - Todo va en un contenedor Docker sin red que escucha en un socket Unix.
 
@@ -43,7 +43,7 @@ bench/                  benchmark de GHC y prueba de carga
 ```
 
 Solo `student_code` y `tests` son obligatorios. `expr` y `expected` son
-expresiones Haskell de una línea. Si el alumno redefine un nombre del Prelude,
+expresiones Haskell de una línea. Si el estudiante redefine un nombre del Prelude,
 el test debe cualificarlo: `Student.sum [1,2]`.
 
 Respuestas (siempre HTTP 200; el veredicto va en `status`):
@@ -70,7 +70,7 @@ Respuestas (siempre HTTP 200; el veredicto va en `status`):
 
 ### Códigos de mensaje
 
-Los mensajes que genera el propio ejecutor (no GHC ni el programa del alumno)
+Los mensajes que genera el propio ejecutor (no GHC ni el programa del estudiante)
 llevan un campo `code` estable y un `message` por defecto en inglés. El cliente
 puede mostrar su propio texto traducido a partir de `code`; si no hay `code`, el
 mensaje viene de GHC o del programa y se muestra tal cual.
