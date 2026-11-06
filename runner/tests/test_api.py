@@ -89,6 +89,7 @@ class ApiTest(unittest.TestCase):
         h = self.client.get("/health").json()
         self.assertEqual((h["status"], h["workers"]), ("ok", 2))
         self.assertTrue(h["ghc"].startswith("9."))
+        self.assertIn("revision", h)
 
 
 @unittest.skipUnless(TestClient is not None, "requires fastapi")

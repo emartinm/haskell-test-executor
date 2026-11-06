@@ -4,7 +4,7 @@ Servicio que evalúa envíos de Haskell para un juez automático: recibe el cód
 del estudiante, las definiciones iniciales del problema y una lista de tests
 `(expresión, valor esperado)`, y devuelve el veredicto en JSON.
 
-- Compila con GHC 9.10.3 y ejecuta en cajas de [isolate](https://github.com/ioi/isolate)
+- Compila con GHC 9.10.3 y ejecuta en sandboxes de [isolate](https://github.com/ioi/isolate)
   (sin red, uid sin privilegios, límites de CPU, memoria y procesos por cgroups v2).
 - El código del estudiante se compila en modo Safe Haskell y no puede contener pragmas.
 - Se detiene en el primer test que falla y lo describe (salvo si es oculto).
@@ -16,7 +16,7 @@ del estudiante, las definiciones iniciales del problema y una lista de tests
 harness/Judge.hs        ejecuta los tests dentro del programa compilado (solo depende de base)
 runner/codegen.py       genera Student.hs, Defs.hs y Tests.hs a partir del envío
 runner/diagnostics.py   interpreta los errores de compilación de GHC
-runner/sandbox.py       cajas de isolate
+runner/sandbox.py       sandboxes de isolate
 runner/judge.py         compilar + ejecutar + veredicto
 runner/cache.py         Judge y Defs precompilados (por hash)
 runner/api.py           servicio HTTP (FastAPI)
@@ -86,7 +86,8 @@ mensaje viene de GHC o del programa y se muestra tal cual.
 - Errores de la petición: 422 (formato o límites fuera de rango), 400 (extensión no
   permitida, test de varias líneas…), 503 (cola llena).
 
-`GET /health` devuelve versión de GHC, cajas ocupadas, cola y estadísticas de la caché.
+`GET /health` devuelve versión de GHC, commit del ejecutor (`revision`, el de la imagen; `unknown`
+si se construyó sin `--build-arg REVISION=…`), sandboxes ocupados, cola y estadísticas de la caché.
 
 ## Desarrollo y pruebas
 
@@ -94,7 +95,7 @@ mensaje viene de GHC o del programa y se muestra tal cual.
 python3 -m unittest discover -t . -s runner/tests     # en local (sin fastapi se omiten las de la API)
 bash harness/run_tests.sh                             # casos del harness
 
-docker build -f docker/Dockerfile -t haskell-test-executor .
+docker build -f docker/Dockerfile -t haskell-test-executor --build-arg REVISION=$(git rev-parse --short HEAD) .
 docker run --rm --network none --cap-drop ALL --cap-add SYS_ADMIN --cap-add NET_ADMIN \
   --cap-add SETUID --cap-add SETGID --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
   --cap-add SYS_CHROOT --security-opt apparmor=unconfined \
@@ -118,7 +119,7 @@ Instalación:
 
 ```sh
 # en la máquina de desarrollo
-docker build -f docker/Dockerfile -t haskell-test-executor .
+docker build -f docker/Dockerfile -t haskell-test-executor --build-arg REVISION=$(git rev-parse --short HEAD) .
 docker save haskell-test-executor | gzip | ssh servidor 'gunzip | docker load'
 
 # en el servidor
@@ -131,7 +132,7 @@ curl --unix-socket /run/haskell-test-executor/executor.sock http://executor/heal
 
 El socket solo es accesible para el grupo `haskell-test-executor`. El contenedor corre sin red
 (`--network none`) y, en lugar de `--privileged`, solo con los permisos (*capabilities*) que
-necesita isolate para crear sus cajas: `SYS_ADMIN`, `NET_ADMIN`, `SETUID`, `SETGID`, `CHOWN`,
+necesita isolate para crear sus sandboxes: `SYS_ADMIN`, `NET_ADMIN`, `SETUID`, `SETGID`, `CHOWN`,
 `DAC_OVERRIDE`, `FOWNER` y `SYS_CHROOT`. Así, el root del contenedor no ve los discos del host,
 no puede cargar módulos ni cambiar parámetros del kernel, y se mantiene el filtro seccomp de
 Docker. AppArmor se desactiva para el contenedor porque su perfil por defecto impide los
@@ -142,12 +143,35 @@ montajes que hacen el entrypoint e isolate. Dentro, el servicio se ejecuta como 
 
 Los paquetes de Ubuntu (gcc, Python, FastAPI…) e isolate se instalan con `apt` al construir
 la imagen, así que para recibir sus parches de seguridad basta con reconstruirla de vez en
-cuando (por ejemplo, una vez al mes o tras un aviso de seguridad importante):
+cuando (por ejemplo, una vez al mes o tras un aviso de seguridad importante), además de cuando
+cambia el código.
+
+Lo más cómodo es construirla en el propio servidor con `docker/update.sh`, desde un clon del
+repositorio propiedad de root (quien pueda modificar ese código decide qué se ejecuta en el
+contenedor):
+
+```sh
+sudo git clone https://github.com/emartinm/haskell-test-executor.git /srv/haskell-test-executor   # la primera vez
+sudo /srv/haskell-test-executor/docker/update.sh
+```
+
+El script hace `git pull`, construye la imagen nueva sin caché y con la última imagen base de
+Ubuntu (`--pull --no-cache`, unos 8 minutos), pasa los tests dentro de ella y solo entonces la
+pone en servicio: la etiqueta como `latest` y con su commit, deja la anterior como `rollback`,
+reinicia el servicio y comprueba que evalúa un envío. Si no funciona, vuelve solo a la imagen
+anterior. Mientras construye y pasa los tests, el servicio sigue con la imagen anterior. Conserva
+las imágenes de los 3 últimos commits (`KEEP`) y avisa si `docker/haskell-test-executor.service`
+ha cambiado respecto al instalado (no lo copia: hay que revisarlo). Con `--no-pull`, construye el
+código que ya hay en el clon. Si dentro de `docker build` no se resuelven nombres (DNS),
+`BUILD_OPTS="--pull --no-cache --network host"`. Se puede programar con cron (como root); termina
+con error si algo falla.
+
+También se puede construir en otra máquina y llevar la imagen al servidor:
 
 ```sh
 # en la máquina de desarrollo: --pull descarga la última imagen base de Ubuntu y
 # --no-cache evita reutilizar capas antiguas (si no, apt no instalaría nada nuevo)
-docker build --pull --no-cache -f docker/Dockerfile -t haskell-test-executor .
+docker build --pull --no-cache -f docker/Dockerfile -t haskell-test-executor --build-arg REVISION=$(git rev-parse --short HEAD) .
 docker run --rm --network none --cap-drop ALL --cap-add SYS_ADMIN --cap-add NET_ADMIN \
   --cap-add SETUID --cap-add SETGID --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
   --cap-add SYS_CHROOT --security-opt apparmor=unconfined \
@@ -207,7 +231,7 @@ def mensaje(resultado: dict) -> str:
     return texto(resultado) if texto else resultado.get("message", "")
 ```
 
-## Rendimiento (máquina de desarrollo, 3 cajas)
+## Rendimiento (máquina de desarrollo, 3 sandboxes)
 
 Un envío típico tarda ~0,3 s (compilar ~0,12 s, enlazar con lld ~0,1 s, ejecutar
 ~0,02 s). 30 envíos simultáneos se resuelven en ~3 s.

@@ -1,6 +1,6 @@
 # Secure Haskell test executor: GHC + isolate + runner.
 #
-#   docker build -f docker/Dockerfile -t haskell-test-executor .
+#   docker build -f docker/Dockerfile -t haskell-test-executor --build-arg REVISION=$(git rev-parse --short HEAD) .
 #
 #   # service: listens on /run/haskell-test-executor/executor.sock, without network
 #   docker run --rm --network none <capabilities> -v /run/haskell-test-executor:/run/haskell-test-executor haskell-test-executor
@@ -75,6 +75,10 @@ COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 WORKDIR /app
 ENV PATH=/opt/ghc/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1
+
+# Commit of the repository, shown by /health (last, so it does not invalidate the cache)
+ARG REVISION=unknown
+ENV HASKELL_EXECUTOR_REVISION=${REVISION}
 
 ENTRYPOINT ["entrypoint.sh"]
 CMD ["python3", "-m", "uvicorn", "runner.api:app", "--uds", "/run/haskell-test-executor/executor.sock", "--no-access-log"]

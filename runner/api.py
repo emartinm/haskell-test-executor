@@ -12,6 +12,7 @@ Environment variables:
     HASKELL_EXECUTOR_WORKERS    number of boxes in parallel (default 3)
     HASKELL_EXECUTOR_MAX_QUEUE  submissions that may wait (default 100)
     HASKELL_EXECUTOR_FIRST_BOX  id of the first box (default 0)
+    HASKELL_EXECUTOR_REVISION   git commit of the image, shown by /health (set when it is built)
 """
 
 from __future__ import annotations
@@ -169,6 +170,7 @@ async def health() -> dict:
     return {
         "status": "ok",
         "ghc": state.ghc_version,
+        "revision": os.environ.get("HASKELL_EXECUTOR_REVISION", "unknown"),
         "workers": state.pool.workers,
         "busy": state.pool.busy,
         "queued": state.pool.waiting,
