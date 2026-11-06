@@ -16,6 +16,9 @@
 ARG UBUNTU=26.04
 
 # --- GHC in /opt/ghc ----------------------------------------------------------
+# Its version is pinned, so update.sh reuses this stage from the cache and only rebuilds
+# the final one (--no-cache-filter final). It is rebuilt when GHC_VERSION or the base
+# image change.
 FROM ubuntu:${UBUNTU} AS ghc
 
 ARG GHC_VERSION=9.10.3
@@ -40,7 +43,7 @@ RUN find /opt/ghc \( -name '*.p_hi' -o -name '*.p_o' -o -name '*_p.a' -o -name '
  && rm -rf /opt/ghc/share/doc /opt/ghc/lib/*/html
 
 # --- Final image ----------------------------------------------------------------
-FROM ubuntu:${UBUNTU}
+FROM ubuntu:${UBUNTU} AS final
 
 # GHC uses gcc and binutils to assemble; lld links much faster than ld.bfd.
 RUN apt-get update \

@@ -27,6 +27,12 @@ docker run --rm --network none --cap-drop ALL --cap-add SYS_ADMIN --cap-add NET_
 
 `REVISION` es el commit que devuelve `/health` (`unknown` si se omite).
 
+Con BuildKit (`docker-buildx`), las dos etapas del Dockerfile se construyen en paralelo y, si
+solo cambia el código, todo sale de la caché salvo las últimas capas (segundos). Medido en una
+máquina de desarrollo: construcción completa con `--pull --no-cache`, unos 8 minutos (casi 6 de
+ellos, descargar e instalar GHC); con `--pull --no-cache-filter final` y GHC en la caché, unos
+2 minutos (1 de `apt` y 1 de guardar la imagen).
+
 Para probarlo con el juez en local, `config.sh` de
 [haskell-judge](https://github.com/emartinm/haskell-judge) arranca un contenedor de esta imagen
 con su socket en `/tmp/hj-executor/`.

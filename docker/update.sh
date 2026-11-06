@@ -8,7 +8,9 @@
 # service does not work after the restart, the previous image is restored automatically.
 # Images are tagged with the commit (haskell-test-executor:<commit>, plus :latest and :rollback);
 # the KEEP (3) newest commit tags are kept. Other variables: IMAGE, SERVICE, SOCKET and
-# BUILD_OPTS (options of docker build, "--pull --no-cache" by default).
+# BUILD_OPTS (options of docker build; by default "--pull --no-cache-filter final" with
+# BuildKit, which rebuilds the final stage but reuses GHC from the cache, and
+# "--pull --no-cache" without it).
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -16,7 +18,12 @@ IMAGE=${IMAGE:-haskell-test-executor}
 SERVICE=${SERVICE:-haskell-test-executor}
 SOCKET=${SOCKET:-/run/haskell-test-executor/executor.sock}
 KEEP=${KEEP:-3}
-read -r -a BUILD_OPTS <<<"${BUILD_OPTS:---pull --no-cache}"
+if docker buildx version >/dev/null 2>&1; then
+    DEFAULT_BUILD_OPTS="--pull --no-cache-filter final"
+else
+    DEFAULT_BUILD_OPTS="--pull --no-cache"
+fi
+read -r -a BUILD_OPTS <<<"${BUILD_OPTS:-$DEFAULT_BUILD_OPTS}"
 PULL=${1:-}
 # Same options as docker/haskell-test-executor.service
 CAPS=(--network none --cap-drop ALL --cap-add SYS_ADMIN --cap-add NET_ADMIN --cap-add SETUID
