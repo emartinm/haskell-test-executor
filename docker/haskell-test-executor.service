@@ -42,4 +42,6 @@ Restart=always
 RestartSec=5
 
 [Install]
-WantedBy=multi-user.target
+# docker.service: Requires= stops the executor when Docker stops or restarts (e.g. an apt
+# upgrade of Docker); this starts it again when Docker starts
+WantedBy=multi-user.target docker.service
